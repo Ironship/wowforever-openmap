@@ -51,7 +51,7 @@ end
 -- the cursor itself, from where it placed it, so its tooltips go with them
 local function LeatrixPins()
 	local top = S.artTop
-	if not top then return end
+	if not top or InCombatLockdown() then return end   -- (a frame level: restricted in combat, retried when it ends)
 	local kids = { map:GetCanvas():GetChildren() }     -- (once a map change: every pin is a child)
 	for _, f in ipairs(kids) do
 		if f.isLeaMapsPin and f:GetFrameLevel() <= top then f:SetFrameLevel(top + 2) end
@@ -63,7 +63,7 @@ end
 -- Leatrix's are; pins made later hang off the lifted frame and come out above it themselves.
 local function RareScannerPins()
 	local top = S.artTop
-	if not top then return end
+	if not top or InCombatLockdown() then return end   -- (a frame level: restricted in combat, retried when it ends)
 	local canvas = map:GetCanvas()
 	local made = canvas:GetFrameLevel() + 10           -- (the unnamed frame it places on the canvas)
 	for _, f in ipairs({ canvas:GetChildren() }) do
@@ -148,5 +148,7 @@ function mod:SetupCompat(worldMap)
 	map:HookScript("OnShow", function() if first then first = false Reassert() end end)
 	C_Timer.After(1, Reassert)
 	ns.RegisterEvent(owner, "CVAR_UPDATE", OnCVar)
+	-- (the lifts above a frame level wait out combat: run them again when it ends)
+	ns.RegisterEvent(owner, "PLAYER_REGEN_ENABLED", function() if Stitched() then HoldAll() end end)
 	C_Timer.After(3, Warn)
 end
