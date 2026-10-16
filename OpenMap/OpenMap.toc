@@ -56,6 +56,7 @@ Map\News.lua
 Map\Window.lua
 Map\Compat.lua
 Map\Panel.lua
+Map\Welcome.lua
 
 # For other addons (docs/api.md)
 API.lua

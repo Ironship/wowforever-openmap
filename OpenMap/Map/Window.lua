@@ -4,6 +4,8 @@
 -- remembered, and a size slider scales the whole window. Only the windowed map: the maximized map is left to
 -- Blizzard. Blizzard's panel layout tables are left alone (writing to them can
 -- taint): the saved place is put back each time Blizzard lays the map out.
+-- With Move Any, the window is Move Any's: no title bar, grips or saved place here (they
+-- fought its own drag and resize, #23).
 --------------------------------------------------------------------------------
 
 local _, ns = ...
@@ -24,6 +26,17 @@ local map, handle, grip, border  -- (grip: both corners' grips)
 local FillScreen, SetupBorder, SetupQuestLog, TurnArrows
 local blizzardSize              -- the windowed map's own size, for a reset
 local ours = false              -- OpenMap is moving / sizing the window itself (not to be undone)
+local moveAny = false           -- Move Any moves and sizes the window: OpenMap leaves it be
+
+-- Move Any loaded, or on to load for this character (it may load after OpenMap sets the window up)
+local function MoveAnyOn()
+	local loaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
+	if loaded and loaded("MoveAny") then return true end
+	local state = C_AddOns and C_AddOns.GetAddOnEnableState
+	if not state then return false end
+	local ok, on = pcall(state, "MoveAny", UnitName("player"))
+	return ok and type(on) == "number" and on > 0
+end
 
 local function Refit()
 	local sc = map.ScrollContainer
@@ -35,7 +48,7 @@ local function Maximized()
 end
 
 local function Apply()
-	if not map or Maximized() or ours then return end
+	if not map or Maximized() or ours or moveAny then return end
 	ours = true
 	local w = mod.db.window
 	if w then
@@ -59,7 +72,7 @@ end
 -- screen); the stitched map is the whole world, so it takes the screen's full width
 FillScreen = function()
 	if not map or not Maximized() or InCombatLockdown() then return end
-	if math.abs((map:GetScale() or 1) - 1) > 0.001 then map:SetScale(1) end   -- (the windowed size is the window's)
+	if not moveAny and math.abs((map:GetScale() or 1) - 1) > 0.001 then map:SetScale(1) end   -- (the windowed size is the window's)
 	if not mod.db.fullWidth then return end
 	local w = math.floor(UIParent:GetWidth())
 	if math.abs(map:GetWidth() - w) < 1 then return end
@@ -76,7 +89,7 @@ function mod:ResetWindow()
 	mod.db.window = false
 	mod.db.windowScale = 1
 	mod.db.windowSize = false
-	if map then
+	if map and not moveAny then
 		ours = true
 		map:SetScale(1)
 		if blizzardSize and not Maximized() then map:SetSize(blizzardSize[1], blizzardSize[2]) Refit() end
@@ -265,66 +278,71 @@ end
 
 function mod:SetupWindow(worldMap)
 	map = worldMap
-	map:SetClampedToScreen(true)
-	if not Maximized() then blizzardSize = { map:GetWidth(), map:GetHeight() } end
+	moveAny = MoveAnyOn()
+	grip = {}
+	-- (with Move Any: none of this. Its own drag and resize place the window, and nothing puts it back)
+	if not moveAny then
+		map:SetClampedToScreen(true)
+		if not Maximized() then blizzardSize = { map:GetWidth(), map:GetHeight() } end
 
-	-- the title bar: a strip along the top, clear of the corner buttons
-	handle = CreateFrame("Frame", nil, map)
-	handle:SetPoint("TOPLEFT", map, "TOPLEFT", 70, 0)
-	handle:SetPoint("TOPRIGHT", map, "TOPRIGHT", -70, 0)
-	handle:SetHeight(22)
-	handle:SetFrameLevel(map:GetFrameLevel() + 5)
-	handle:EnableMouse(true)
-	handle:RegisterForDrag("LeftButton")
-	handle:SetScript("OnDragStart", function()
-		if Maximized() then return end
-		map:SetMovable(true)
-		map:StartMoving()
-	end)
-	handle:SetScript("OnDragStop", function()
-		map:StopMovingOrSizing()
-		map:SetUserPlaced(false)            -- (ours to remember, not the layout cache's)
-		Save()
-	end)
-	handle:SetScript("OnEnter", function(self)
-		if Maximized() then return end
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip:AddLine(L["Drag to move the map"], 1, 1, 1)
-		GameTooltip:Show()
-	end)
-	handle:SetScript("OnLeave", GameTooltip_Hide)
+		-- the title bar: a strip along the top, clear of the corner buttons
+		handle = CreateFrame("Frame", nil, map)
+		handle:SetPoint("TOPLEFT", map, "TOPLEFT", 70, 0)
+		handle:SetPoint("TOPRIGHT", map, "TOPRIGHT", -70, 0)
+		handle:SetHeight(22)
+		handle:SetFrameLevel(map:GetFrameLevel() + 5)
+		handle:EnableMouse(true)
+		handle:RegisterForDrag("LeftButton")
+		handle:SetScript("OnDragStart", function()
+			if Maximized() then return end
+			map:SetMovable(true)
+			map:StartMoving()
+		end)
+		handle:SetScript("OnDragStop", function()
+			map:StopMovingOrSizing()
+			map:SetUserPlaced(false)            -- (ours to remember, not the layout cache's)
+			Save()
+		end)
+		handle:SetScript("OnEnter", function(self)
+			if Maximized() then return end
+			GameTooltip:SetOwner(self, "ANCHOR_TOP")
+			GameTooltip:AddLine(L["Drag to move the map"], 1, 1, 1)
+			GameTooltip:Show()
+		end)
+		handle:SetScript("OnLeave", GameTooltip_Hide)
 
-	grip = { Grip("BOTTOMRIGHT"), Grip("BOTTOMLEFT") }
+		grip = { Grip("BOTTOMRIGHT"), Grip("BOTTOMLEFT") }
 
-	-- put the saved place back whenever Blizzard lays the map out: opening shows the map first and
-	-- places it after (inside ShowUIPanel), so it's put back once that's done, not a moment later
-	map:HookScript("OnShow", Apply)
-	if ShowUIPanel then hooksecurefunc("ShowUIPanel", function(frame) if frame == map then Apply() end end) end
-	if UpdateUIPanelPositions then hooksecurefunc("UpdateUIPanelPositions", function() if map:IsShown() then Apply() end end) end
-	-- ... and the moment anything else sizes, scales or places the windowed map (Blizzard's
-	-- layout, its quest log widening it, its minimize ...), so it never shows elsewhere first.
-	-- (Not while it's being dragged: the drag places it, and the drop saves where it went.)
-	local dragging = false
-	local function Hold()
-		if ours or dragging or not map:IsShown() then return end
-		Apply()
+		-- put the saved place back whenever Blizzard lays the map out: opening shows the map first and
+		-- places it after (inside ShowUIPanel), so it's put back once that's done, not a moment later
+		map:HookScript("OnShow", Apply)
+		if ShowUIPanel then hooksecurefunc("ShowUIPanel", function(frame) if frame == map then Apply() end end) end
+		if UpdateUIPanelPositions then hooksecurefunc("UpdateUIPanelPositions", function() if map:IsShown() then Apply() end end) end
+		-- ... and the moment anything else sizes, scales or places the windowed map (Blizzard's
+		-- layout, its quest log widening it, its minimize ...), so it never shows elsewhere first.
+		-- (Not while it's being dragged: the drag places it, and the drop saves where it went.)
+		local dragging = false
+		local function Hold()
+			if ours or dragging or not map:IsShown() then return end
+			Apply()
+		end
+		for _, method in ipairs({ "SetSize", "SetWidth", "SetHeight", "SetScale", "SetPoint" }) do
+			if map[method] then hooksecurefunc(map, method, Hold) end
+		end
+		handle:HookScript("OnDragStart", function() dragging = true end)
+		handle:HookScript("OnDragStop", function() dragging = false end)
+		-- (the map closed mid-move: no drag stop comes, so the move ends with the map)
+		handle:HookScript("OnHide", function()
+			if not dragging then return end
+			dragging = false
+			map:StopMovingOrSizing()
+			map:SetUserPlaced(false)
+			Save()
+		end)
 	end
-	for _, method in ipairs({ "SetSize", "SetWidth", "SetHeight", "SetScale", "SetPoint" }) do
-		if map[method] then hooksecurefunc(map, method, Hold) end
-	end
-	handle:HookScript("OnDragStart", function() dragging = true end)
-	handle:HookScript("OnDragStop", function() dragging = false end)
-	-- (the map closed mid-move: no drag stop comes, so the move ends with the map)
-	handle:HookScript("OnHide", function()
-		if not dragging then return end
-		dragging = false
-		map:StopMovingOrSizing()
-		map:SetUserPlaced(false)
-		Save()
-	end)
 	local function Mode()
 		local max = Maximized()
-		handle:SetShown(not max)
+		if handle then handle:SetShown(not max) end
 		for _, g in ipairs(grip) do g:SetShown(not max) end
 		if max then FillScreen() else Apply() end
 	end
@@ -495,8 +513,9 @@ SetupQuestLog = function()
 end
 
 function mod:WindowOptions(opts, get, set, off)
+	local function moved() return off() or moveAny end   -- (Move Any's to size and place)
 	opts.windowScale = { type = "range", name = L["Map size"], order = 25, min = MIN_SCALE, max = MAX_SCALE, step = 0.05, isPercent = true,
-		get = get, set = function(info, v) set(info, v) Apply() end, disabled = off,
+		get = get, set = function(info, v) set(info, v) Apply() end, disabled = moved,
 		desc = L["Scales the whole windowed map. Drag either of its bottom corners to change its width and height, and its title bar to move it."] }
 	opts.fullWidth = { type = "toggle", name = L["Full-screen map fills the width"], order = 27, get = get,
 		set = function(info, v)
@@ -507,6 +526,6 @@ function mod:WindowOptions(opts, get, set, off)
 		desc = L["When maximized, the map takes the screen's whole width instead of keeping Blizzard's shape with bars at the sides."] }
 	opts.border = { type = "toggle", name = L["Parchment border"], order = 28, get = get, set = set, disabled = off,
 		desc = L["The map art's own torn-parchment frame round the map, seen when you're zoomed right out."] }
-	opts.resetWindow = { type = "execute", name = L["Reset size and place"], order = 26, disabled = off,
+	opts.resetWindow = { type = "execute", name = L["Reset size and place"], order = 26, disabled = moved,
 		func = function() mod:ResetWindow() end }
 end

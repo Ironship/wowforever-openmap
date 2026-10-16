@@ -2,10 +2,14 @@
 
 ## Unreleased
 
-- **Questie's and other HereBeDragons addons' pins** on the stitched map are only drawn near the
-  view - on the world map too, by their written-down positions. Small pans reuse the visibility
-  check, and pins removed by their addon are forgotten immediately, so culling no longer scans
-  unused pooled frames or brings them back.
+### New
+
+- **A choice the first time the map opens** on a new install: **Classic** (unexplored areas
+  hidden, no dungeon or flight master icons, no zone levels, the favourite buttons folded away) or
+  **OpenMap** (as it comes). Settings you already have aren't asked about or changed;
+  /openmap welcome asks again. Suggested in #24.
+- **OpenMap button on the map** (the menu's Look tab) hides the OpenMap button and the favourites;
+  /openmap opens the menu then.
 - **Other addons' pins** (Questie's, the gatherers'...) are hidden while zoomed out past a set zoom
   ("Other addons' pins from", in the menu's Look tab), where a continent's worth of them would
   overlap each other and hide the map; zoom in and they come back.
@@ -16,22 +20,38 @@
   of blending, so overlapping unexplored pieces darken once, and unfound cities follow the slider
   too. It works with "Darken unexplored areas" on, and comes at the strength the map already
   darkens them with.
+
+### Improved
+
+- **Questie's and other HereBeDragons addons' pins** on the stitched map are only drawn near the
+  view - on the world map too, by their written-down positions. Small pans reuse the visibility
+  check, and pins removed by their addon are forgotten immediately, so culling no longer scans
+  unused pooled frames or brings them back.
 - **RareScanner:** its rare icons are lifted above the stitched map's art (they're made low on the
   canvas, under it), the way Leatrix Maps' icons already are.
 - **Without Questie,** the menu keeps its Questie rows (quest icons, dungeon quests, townsfolk,
   rares) visible and greyed, with a tooltip saying what's missing; a dungeon's card says where its
   quests would be; and one line at login says so - instead of those parts just being absent.
-- The map's combat guard defers Blizzard's pin mouse setup until combat ends, including
-  super-tracked pins and mixins loaded later. It no longer rescans the entire pin pool for every
-  acquired pin, avoiding quadratic work when hundreds of icons are rebuilt.
 - A HereBeDragons copy OpenMap can't recognize is left to place its pins the game's way - and said
   once, after a few map opens - instead of being passed over in silence.
-- If this client's map layers aren't the ones OpenMap needs (a renamed level, an insert that
-  fails), the seamless map stays off with a line in chat, instead of building its art over every
-  pin; `/openmap status` prints the frame levels it read.
 - The map switches to the zone under the view sooner after it stops (a third of a second, not
   most of one), so that zone's quest icons and other addons' pins come in nearly as soon as the
   zone is looked at.
+
+### Fixed
+
+- The zone you're looking at has its name over the map again when you hover it, where the game
+  names no place in it (Silverpine Forest's had gone; reported in #25). With Zone levels off, zone
+  names still show, without their levels.
+- **Move Any** owns the map window: with it, OpenMap's title bar, resize grips and saved place
+  stand down, so Move Any's own drag and resize work on the map again (reported in #23). The map
+  size slider and Reset size and place are off then.
+- The map's combat guard defers Blizzard's pin mouse setup until combat ends, including
+  super-tracked pins and mixins loaded later. It no longer rescans the entire pin pool for every
+  acquired pin, avoiding quadratic work when hundreds of icons are rebuilt.
+- If this client's map layers aren't the ones OpenMap needs (a renamed level, an insert that
+  fails), the seamless map stays off with a line in chat, instead of building its art over every
+  pin; `/openmap status` prints the frame levels it read.
 
 ## v0.4.0-beta (2026-10-16)
 
