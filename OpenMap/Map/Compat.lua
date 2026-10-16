@@ -12,6 +12,8 @@
 --   * the zone label, the coordinates CVars and the game's map fade are set again after theirs:
 --     Leatrix Maps and OpenMap both replace the label's script at login (theirs reads the map
 --     underneath, not the view), and either may turn Blizzard's coordinates or fade back on
+--   * Move Any: the map window is its to move and size; OpenMap's title bar, grips and saved
+--     place stand down (Window.lua)
 --   * what still clashes, their window options, is named once at login, in their own words
 --------------------------------------------------------------------------------
 

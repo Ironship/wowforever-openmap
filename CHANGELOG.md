@@ -7,6 +7,9 @@
 - The zone you're looking at has its name over the map again when you hover it, where the game
   names no place in it (Silverpine Forest's had gone; reported in #25). With Zone levels off, zone
   names still show, without their levels.
+- **Move Any** owns the map window: with it, OpenMap's title bar, resize grips and saved place
+  stand down, so Move Any's own drag and resize work on the map again (reported in #23). The map
+  size slider and Reset size and place are off then.
 
 ## v0.4.0-beta (2026-10-16)
 
