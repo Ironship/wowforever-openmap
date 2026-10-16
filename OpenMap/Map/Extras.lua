@@ -368,6 +368,7 @@ local function CullPins(u, v, hu, hv, _, zoom)
 	end
 	local mapID = map:GetMapID()
 	if not map:IsShown() or not mapID or not S.Rect(mapID) then return end
+	if not (hu and hv) then return end   -- (a caller's shape this can't measure by: no cull, no warning)
 	local tooFar = zoom and zoom < (mod.db.pinsFrom or 1.5)
 	local w, h = hu * 2 * CULL_MARGIN, hv * 2 * CULL_MARGIN
 	local x0, y0 = mod.FromWorld(mapID, u - hu - w, v - hv - h)
@@ -401,7 +402,9 @@ local function CullNow()
 	if not mod.ViewNow then return end
 	local u, v, zoom = mod.ViewNow()
 	if not u then return end
-	CullPins(u, v, mod.ViewHalfExtents(zoom), nil, zoom)
+	local hu, hv = mod.ViewHalfExtents(zoom)     -- (both: as a call's arguments they would truncate to one)
+	if not hu or not hv then return end
+	CullPins(u, v, hu, hv, nil, zoom)
 end
 
 -- the view changes (WorldMap.lua calls S.SetView on every pan, zoom and map update): cull.
