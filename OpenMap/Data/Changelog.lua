@@ -4,7 +4,9 @@
 local _, ns = ...
 
 ns.MapChangelog = {
-	{ version = "Unreleased", date = "", heads = { [1] = "Fixed", }, items = {
+	{ version = "Unreleased", date = "", heads = { [1] = "New", [3] = "Fixed", }, items = {
+		"|cff6e2c0aA choice the first time the map opens|r on a new install: |cff6e2c0aClassic|r (unexplored areas hidden, no dungeon or flight master icons, no zone levels, the favourite buttons folded away) or |cff6e2c0aOpenMap|r (as it comes). Settings you already have aren't asked about or changed; /openmap welcome asks again. Suggested in #24.",
+		"|cff6e2c0aOpenMap button on the map|r (the menu's Look tab) hides the OpenMap button and the favourites; /openmap opens the menu then.",
 		"The zone you're looking at has its name over the map again when you hover it, where the game names no place in it (Silverpine Forest's had gone; reported in #25). With Zone levels off, zone names still show, without their levels.",
 		"|cff6e2c0aMove Any|r owns the map window: with it, OpenMap's title bar, resize grips and saved place stand down, so Move Any's own drag and resize work on the map again (reported in #23). The map size slider and Reset size and place are off then.",
 	} },

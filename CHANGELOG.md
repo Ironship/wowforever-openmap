@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### New
+
+- **A choice the first time the map opens** on a new install: **Classic** (unexplored areas
+  hidden, no dungeon or flight master icons, no zone levels, the favourite buttons folded away) or
+  **OpenMap** (as it comes). Settings you already have aren't asked about or changed;
+  /openmap welcome asks again. Suggested in #24.
+- **OpenMap button on the map** (the menu's Look tab) hides the OpenMap button and the favourites;
+  /openmap opens the menu then.
+
 ### Fixed
 
 - The zone you're looking at has its name over the map again when you hover it, where the game

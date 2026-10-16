@@ -22,6 +22,7 @@ d.favorites = {}                -- action and row ids, in the order they were st
 d.trayOpen = true               -- the favourites' row shown (the arrow beside the OpenMap button folds it)
 d.trayStarted = false           -- the first favourites given, once (a fresh install's, or one with none yet)
 d.tabRail = true                -- the OpenMap button and the favourites as tabs at the window's edge (off: a row in its bottom-left corner)
+d.mapButtons = true             -- the OpenMap button and the favourites on the map at all (off: none; /openmap opens the menu)
 local TRAY_START = { "find", "pin", "quill" }
 
 local map, sc, menu, toggle, trayArrow, checks, favBar, tiles, zoomRow, miniRow, opacityRow
@@ -239,6 +240,12 @@ local function Rows()
 	rows[#rows + 1] = optRow(L["Zone levels"], "zoneLevels", Icon("Spell_ChargePositive"))
 	rows[#rows + 1] = optRow(L["Coordinates"], "coords", Icon("INV_Misc_Spyglass_03"))
 	rows[#rows + 1] = optRow(L["Buttons as edge tabs"], "tabRail", Icon("INV_Misc_Book_09"))
+	rows[#rows + 1] = row(L["OpenMap button on the map"], "mapButtons", Icon("INV_Misc_Map_01"), function() return db.mapButtons end,
+		function(v)
+			db.mapButtons = v
+			if not v then ns:Print(L["The OpenMap button is hidden. Type /openmap to open its menu."]) end
+			mod:Refresh()
+		end)
 	-- (Options' own setters, where they do more than set it: the full-screen map is laid out again)
 	local options = mod.Options and mod:Options() or {}
 	local function fromOptions(label, key, icon)
@@ -704,6 +711,14 @@ function mod.RefreshRail() if mod.db.tabRail and favBar then RefreshFavorites() 
 
 RefreshFavorites = function()
 	if not favBar then return end
+	if not mod.db.mapButtons then
+		toggle:Hide()
+		trayArrow:Hide()
+		favBar:Hide()
+		if rail then rail:Hide() end
+		if mod.PlaceDungeonTabs then mod.PlaceDungeonTabs() end
+		return
+	end
 	-- (the rail, or the row in the bottom-left corner)
 	local tabs = mod.db.tabRail and true or false
 	toggle:SetShown(not tabs)
