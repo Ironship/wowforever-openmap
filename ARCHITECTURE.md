@@ -29,7 +29,7 @@ tools/
   map-textures/   edge fades, parchment grain
   map-preview/    renders the stitched map out of game; bakes MapTerritory / MapZoneLand / MapLand;
                   sea.py, sea_world.py (the sea), gapfill.py (the gaps), banners.py
-                  (Orgrimmar's banner and cut), tone.py (zone colours)
+                  (the cities' banners and cuts), tone.py (zone colours)
   map-art/        export.py / import.py (hand-cleaned world and continent art), border.py
   map-tuning/     align.py: measures each zone's art against the minimap (report only)
   offline-test/   loads the addon in a stubbed client (run.py, lint.py)
@@ -70,7 +70,9 @@ Every zone map is drawn onto one canvas in Azeroth's (947) art pixels, placed by
   --bake-territory`): as far as Blizzard painted it, its own land and, inside its frame,
   the sea off its coasts (Blizzard's hatching, shallows and islets, up to `TERR_SEA` off the
   continent's coast) and the land round it (the mountains and coasts its map draws of its
-  neighbours' surroundings). Not another zone's own land, not the names it prints (the
+  neighbours' surroundings). An island the continent's art doesn't show as land (Teldrassil)
+  has its whole coast as its own land, as its art paints it (the roots its overlays leave
+  out). Not another zone's own land, not the names it prints (the
   sea's, its neighbours'), not its compass roses, not where a classic map is drawn. Where
   several zones paint the same place their claims are shared out by how near their own land
   is, each fading at its frame, so one hands over to the next; past every zone's painting
@@ -80,9 +82,11 @@ Every zone map is drawn onto one canvas in Azeroth's (947) art pixels, placed by
   client): a thin, wavy feather at the art's edge.
 - **zone interiors**: the overlays again through `MapCore`, above every zone's parchment halo.
 - **cities**: base art with a round feather, fading in near the zoom where they fill the view.
-  Orgrimmar comes in sooner. Orgrimmar and Undercity are cut to their plan and their own name
-  banner (`MapCityMask`), under their zone's banner for them (`MapBanner`; the zone's own art is
-  drawn without it, `MapBannerHole`), which gives way to the city's own as it comes in.
+  Orgrimmar and Thunder Bluff come in sooner. Orgrimmar, Undercity and Thunder Bluff are cut to their
+  plan and their own name banner (`MapCityMask`), under their zone's banner for them (`MapBanner`; the
+  zone's own art is drawn without it, `MapBannerHole`), which gives way to the city's own as it comes
+  in (Thunder Bluff's cut takes in where Mulgore's banner was: Mulgore's art under it is bare
+  parchment). Teldrassil's banner for Darnassus stays over the city at every zoom.
 - **names**: the continents' and seas' names, lettered live in the client's font with the
   art's halo (`Data/Labels.lua`, measured from the art), one of each, fixed on the world.
 - **icons and lines**: pin sets (places, flight masters, townsfolk, group members,
@@ -99,14 +103,21 @@ not hidden) they're drawn instead of the live zone layers, a few dozen tiles whe
 layers are hundreds of masked textures, until the view passes the tiles' own pixels; then
 the live layers take over (`Baked.FADE`, in screen px per tile px), tile by tile near the view.
 Drawn at `1 - (1 - d)^2` for the zone detail's fade `d`, as strong as the live layers stacked.
+The live layers come on at full under the tiles a little before the hand-over (`Baked.WARM`),
+so their files load there, and the tiles fade off them; while their files are still loading
+the tiles stay (`Baked.holding`), or the zones' plain parchment base, the first of them in,
+showed between the two.
 
 Unexplored areas: each overlay piece is a shared `{ key, unexplored }` table, so
 `S.ApplyGrade` can show, dim or hide them and `S.RefreshExplored` (on
-`MAP_EXPLORATION_UPDATED`) flips the ones you've just explored. Dimming is a shade over the
-zones' art and the close-up minimap (`shadeRoot`), through each zone's land without its painted
-sea (`MapZoneLand`): all of a zone you haven't found any of, from every zoom, with its share of the
-border land round it (`MapZoneBorder`, so neighbouring undiscovered zones darken as one), or each
-unexplored piece through its own tiles' shapes.
+`MAP_EXPLORATION_UPDATED`) flips the ones you've just explored. Dimming a zone you haven't found
+any of is a shade over its art and the close-up minimap (`shadeRoot`), through its land without its
+painted sea (`MapZoneLand`), from every zoom, with its share of the border land round it
+(`MapZoneBorder`, so neighbouring undiscovered zones darken as one). In a zone you've been to, each
+piece's art is drawn again over the zone's (the baked tiles or the live layers), under the cities
+and the minimap: the unexplored pieces darkened (`Shade.DIM`) on its land alone, the explored over
+them as they are. Blizzard's pieces are opaque rectangles and overlap a lot, so a shade per piece
+stacked and showed their tiles; copies of the art over the same art don't.
 
 Border colours are matched by a tinted copy of each zone drawn through its border-band
 mask (`MapBand`) with the multipliers in `Data/Grade.lua`. Everything is placed once, in
@@ -155,7 +166,7 @@ Fed the view (centre, half extents, zoom) on every pan and zoom (`S.SetView`):
 
 ## The rest of `Map/`
 
-- `Extras.lua`: coordinates bar, zone levels and fishing skill on the hover label
+- `Extras.lua`: coordinates (two labels in the bottom-right corner, steady widths), zone levels and fishing skill on the hover label
   (`Data/Levels.lua`), its own fade while moving (`moveFade`), hidden town / city icons and filter reset
   button, and Questie's pins from neighbouring zones (HereBeDragons only shows a zone's own).
 - `Flights.lua`: flight masters from `Data/FlightData.lua`; learned ones recorded at flight
@@ -163,21 +174,59 @@ Fed the view (centre, half extents, zoom) on every pan and zoom (`S.SetView`):
   the estimate).
 - `Townsfolk.lua`: vendors, trainers, rares ... from Questie's NPC database at run time,
   built the first time a kind is turned on.
-- `Panel.lua`: the OpenMap menu (the button in the map's bottom-left corner), in the map
+- `Dungeons.lua`: the dungeon and raid entrances (`Data/Places.lua`; Stitch.lua's pin set asks
+  `S.BuildDungeonPins`), each with its level range in the game's quest colours for you
+  (`mod.LevelColor`, Extras.lua). Click one for Blizzard's map of it in the same window (several at
+  one entrance: a list to pick from; a Dire Maul wing opens on its floor); back out by right-click,
+  the wheel past all the way out, or the card's Back, and `mod.ReturnView` puts the world back as it
+  was (WorldMap.lua's view reset asks it; the map before is known from `MapCanvas.MapSet`). On a
+  dungeon's map a card lists its bosses (the game's) and, with Questie, its quests. Entrances the
+  client's own encounter journal knows and the tables don't are added at build.
+  `/openmap entrance <name>` prints (and saves) the line for `tools/map-data/build.py`'s `ENTRANCES`.
+- `Panel.lua`: the OpenMap menu, OpenMap's settings (`/openmap` opens it: `mod:OpenMenu`; the options
+  window only while OpenMap is off), from the button in the map's bottom-left corner, in the map
   window's own frame: search, the actions (find me, map pins, the quest log beside the map,
-  report a problem, options), the layer checklist with an icon each (and Questie's own
-  map-icon setting), and the deepest zoom. A star on an action or a setting puts it on the
-  bar beside the OpenMap button (favourites).
+  report a problem, options), the checklist with an icon each (and Questie's own map-icon setting)
+  in three tabs (on the map, the look, the rest; the sliders on the look's), in the game's own
+  settings controls where the client has them (its tabs, checkboxes, sliders with arrows). A star on an action or a setting puts it on the
+  bar beside the OpenMap button (favourites); an arrow beside the button folds that row away. With
+  none starred, Find me, Drop a pin and the Quill are put there once (`trayStarted`). With
+  `tabRail` (on by default) they're tabs inside the map's edge instead, in the quest log's tabs'
+  look: the OpenMap tab, the arrow by it, the favourites past that (as many as fit). The OpenMap
+  tab drags anywhere round the edge (`railPos`: the edge and how far along); the tabs' art turns to
+  sit flat to that edge (Dungeons.lua's `Atlas`: mirrored or a quarter round), and the favourites go
+  the way along it with more room. Low on the right edge (the quest log's left while it's open) by
+  default; a dungeon map's two tabs are on that edge, past the rail's end when it's there.
 - `Routes.lua`: boat and zeppelin routes as evenly spaced dots along the real paths, in
   nested densities; Alliance blue, others red; quiet until the cursor comes near one.
-- `Nav.lua`: find me, reopening where you left off, Ctrl-click map pins (and TomTom),
-  search (zones, dungeons, flight masters), group members off the map underneath.
+- `Nav.lua`: find me, reopening where you left off, the waypoint followed (Blizzard's user
+  waypoint, else OpenMap's own, and TomTom's), search (zones, dungeons, flight masters), group
+  members off the map underneath.
+- `Pins.lua`: map pins (Ctrl-click), any number, each with a note and a colour, kept per account;
+  a pin's card (follow it through Nav.lua, share, delete), the Pins list, sharing as addon messages
+  (prefix `OpenMap`: whoever gets them is asked first; notes plain text, cut short) or a code to
+  paste (`OMPINS1:`).
 - `Window.lua`: move (title bar) and resize (a grip in each bottom corner) the windowed map to any shape,
   remembered; the maximized map fills the screen's width; the parchment border (nine pieces,
   `MapBorder`) round the view, seen only zoomed right out. Re-applied after Blizzard's panel layout, never by editing its
   layout tables (taint).
-- `Report.lua`: beta feedback: circle the problem on the map, add a note, get a report
-  code (`OM1|...`) to paste into a GitHub issue; `tools/map-preview/report.py` renders it.
+- `News.lua`: "What's new", the latest versions' notes (`Data/Changelog.lua`, made from
+  `CHANGELOG.md` by `tools/changelog/build.py`), laid out like the quest log (as the website's
+  changelog is): the versions listed on the log's dark page, the one picked on a quest's parchment
+  (`questbg-parchment`), Newer and Older; after an update the OpenMap button pulses and the
+  menu's What's new glows until the window's been opened.
+- `Report.lua`: beta feedback: draw where it's wrong with the quill (a Sketch.lua session: red,
+  its strokes its own, never kept; on a dungeon's map, Dungeons.lua's markup on its picture), add a
+  note, get a report code (`OM1|...`) to paste into a GitHub issue; `tools/map-preview/report.py`
+  renders it. The code's circles field keeps a circle round each drawing (the web map reads those)
+  and adds the drawings after them, in a form readers of circles alone skip (Report.lua's header).
+- `Combat.lua`: Blizzard's pins' `CheckMouseButtonPassthrough` (`SetPassThroughButtons`, blocked in
+  combat once the map's code has met OpenMap's) waits for the end of combat: each pin mixin's copy, and
+  each pin's, pointed at a version that notes the pin in combat and sets it after.
+- `Sketch.lua`: the quill (the menu's Quill, `/openmap draw`): draw on the stitched map in ink
+  (quill, line, arrow, ring, raid marks; six inks, three nibs), kept per account under `sketch`, each
+  stroke in world coordinates (`S.AddPath`: a line between each two points, sharing their anchors). A
+  map pin's card can draw on that pin; the drawing goes with the pin.
 - `Paint.lua`: map notes, for working on the map (`/openmap notes`): paint an area, say what's
   there (fix this, look into this, an idea), list them, export them all as text;
   `tools/map-preview/notes.py` renders each one. Saved under `paint`.
@@ -217,13 +266,30 @@ Fed the view (centre, half extents, zoom) on every pan and zoom (`S.SetView`):
   swaps the area label's OnUpdate (to add zone levels). Everything else is
   `hooksecurefunc` or a data provider. Map switching waits out combat; the in-game check
   (docs/testing.md) opens the map in combat to catch taint.
-- **Questie**: `Townsfolk.lua` reads Questie's NPC database through
+- **Other addons' pins**: `Extras.lua` takes over placing pins for every copy of HereBeDragons'
+  pins library loaded (Questie's, and the standard one TomTom, gatherers and notes addons use), so a
+  pin from a map point (`uiMapID`, `mapX`, `mapY`) lands right on the stitched map, a neighbouring
+  zone's too. Questie's copy also gets its icons lifted above the art.
+- **`API.lua`**: `OpenMapAPI`, for other addons (`docs/api.md`): positions (map <-> stitched world),
+  the view, callbacks (stitched or not, the view moved, a dungeon's map up), and their own switches in
+  the menu (`mod.ExtraMenuRows`, Panel.lua) and sections on a dungeon's card (`mod.CardSections`,
+  Dungeons.lua). Versioned; read-only plus "add your own".
+- **Questie**: `Townsfolk.lua` reads Questie's NPC database and `Dungeons.lua` its quests through
   `QuestieLoader:ImportModule`, and `Extras.lua` widens which of Questie's pins show on the
-  stitched map. Neither is a public API; both fail quietly (a chat line, no pins) if
+  stitched map. Questie has no places inside dungeons (a boss is "somewhere in it"), so a dungeon's
+  quests and bosses are listed on its map, not pinned. Neither is a public API; both fail quietly (a chat line, no pins) if
   Questie changes.
 - **Data sources**: everything in `Data/` comes from the game's tables except
   `Levels.lua`, which the client doesn't carry (zone ranges from the Warcraft Wiki, see the
   file), `Labels.lua` and `Banners.lua` (measured or traced on the art), and the placement of
   the maps in `Gaps.lua`'s `art` (from Mists of Pandaria Classic's tables, which still place
-  them). Dungeon levels come from the game's group finder (`tools/map-data/build.py`).
+  them). Dungeon levels come from the game's group finder (`tools/map-data/build.py`): one level
+  each, shown as a range five past it, the span WoW Forever's own list gives its new dungeons, whose
+  ranges are Forever's (cited in the script). Bosses are the game's `DungeonEncounter` table.
+  Dungeon maps (`DungeonMaps.lua`): each instance's floors, their names and wings from Mists of
+  Pandaria Classic's map tables (its dungeon art is the same files as Forever's), every tile checked
+  in the install (`tools/map-dungeons/build.py`); Forever's own new dungeons have no map art.
+  Entrances are where a ghost returns (`Map`); Forever's new dungeons have none there: `ENTRANCES`
+  places five on their zones' maps where players find them (checked against Leatrix Maps' icons),
+  and the rest show once recorded in game.
 - Spirit healers: no graveyard table in this build; they come from Questie's database.

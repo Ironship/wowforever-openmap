@@ -21,7 +21,7 @@ Blizzard's art edited by hand, kept in `art-edits/`.
 | `MapCave/` | masks traced from the cave maps | `tools/map-caves/build.py` |
 | `MapCoast/`, `MapSeaMask/`, `MapGapLand/`, `MapGapMask/`, `MapBackLand/` | masks traced from the continent maps' coasts | `tools/map-preview/sea.py`, `gapfill.py` |
 | `MapSeaOut/`, `MapSeaOpen/`, `MapSeaCoast/` | masks of the world and continent maps' sea: past the world map's edge, and its coastal hatching apart from its open sea | `tools/map-preview/sea_world.py` |
-| `MapBanner/` | a zone map's name banner for a city ("Orgrimmar" on Durotar's), cut out along a traced outline | `tools/map-preview/banners.py` |
+| `MapBanner/` | a zone map's name banner for a city ("Orgrimmar" on Durotar's, and Tirisfal's, Mulgore's and Teldrassil's for their cities), cut out along a traced outline | `tools/map-preview/banners.py` |
 | `MapBannerHole/`, `MapCityMask/` | masks traced on the art: the zone's art without that banner, and a city's map cut down to the city and its name banner | `tools/map-preview/banners.py` |
 | `MapGapLand/` (Gilneas), `MapCoastArt/` | masks for Blizzard's own maps that the client has but Forever's tables don't use (Gilneas' base map; the classic base maps of 18 zones, which paint the land round them): where they're drawn, at their own resolution, on land no zone covers | `tools/map-preview/gapfill.py` |
 | `MapMiniLOD/` | the game's minimap tiles, shrunk and laid side by side (16 and 64 px a tile), tinted as the close-up minimap is | `tools/map-preview/minimaplod.py` |

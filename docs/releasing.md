@@ -22,7 +22,11 @@ GitHub release with the zip, and uploads it to CurseForge.
 ## Each release
 
 1. Run the in-game check: [testing.md](testing.md).
-2. Move the "Unreleased" notes in `CHANGELOG.md` under the new version.
+2. Move the "Unreleased" notes in `CHANGELOG.md` under the new version, written as what the
+   release does (not each step of getting there) and grouped under `### New`, `### Improved`
+   and `### Fixed`, the most important first (a change's lead-in in `**bold**`), then run
+   `python -P tools/changelog/build.py`: the in-game "What's new" (`Data/Changelog.lua`) is made
+   from it, and lint fails while the two disagree.
 3. Tag and push: `git tag v0.2.0` then `git push origin v0.2.0`.
 
 Tags with `-beta` or `-alpha` in them are uploaded to CurseForge as beta / alpha files.

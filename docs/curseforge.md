@@ -31,7 +31,7 @@ Every map and icon OpenMap uses is Blizzard's own art, loaded from the game. The
 
 The code lives on GitHub: **[jiforever/wowforever-openmap](https://github.com/jiforever/wowforever-openmap)**
 
-I'd love help making this the best map addon for Forever. Bug reports, ideas, code and fixes are all welcome. The map is tricky to get looking right everywhere, so even a screenshot of a spot that looks off really helps. There's a "Report a problem" button right on the map: circle the spot, add a note, and paste the code into a GitHub issue.
+I'd love help making this the best map addon for Forever. Bug reports, ideas, code and fixes are all welcome. The map is tricky to get looking right everywhere, so even a screenshot of a spot that looks off really helps. There's a "Report a problem" button right on the map: draw on the spot (a dungeon's map too), add a note, and paste the code into a GitHub issue.
 
 ## About Claude
 

@@ -43,7 +43,7 @@ commands, but not how the map looks or behaves. Check that in game.
 ## Triaging reports from players
 
 Players report from the map itself (**Report a problem**): their issue carries a code
-(`OM1|...`). Render exactly what they saw, circles and all:
+(`OM1|...`). Render exactly what they saw, what they drew and all (a dungeon map's report: that floor's picture):
 
 ```bash
 python -P tools/map-preview/report.py <db2 dir> <texture cache> report.png "OM1|..."
@@ -51,7 +51,7 @@ python -P tools/map-preview/report.py <db2 dir> <texture cache> report.png "OM1|
 
 ## Reporting blending problems
 
-Players: the "Report a problem" button on the map (circle it, add a note, paste the
+Players: the "Report a problem" button on the map (draw where it's wrong, add a note, paste the
 code into an issue). Contributors: `/openmap notes` (or the menu's Tools → Map notes) opens the
 map notes tool: pick what a note is (fix this, look into this, an idea), paint the area on the
 map (or just click) and say what's there; as many as you like, all over the map. **Export**

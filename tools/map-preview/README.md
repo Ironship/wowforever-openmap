@@ -58,6 +58,6 @@ Two read what players and contributors send from the game:
 
 | Script | Renders |
 | --- | --- |
-| `report.py <db2> <tex> <out.png> "OM1\|..."` | a "Report a problem" code: the view and its circles |
+| `report.py <db2> <tex> <out.png> "OM1\|..."` | a "Report a problem" code: the view and what was drawn (a dungeon map's: its floors) |
 | `notes.py <db2> <tex> <out dir> <notes.txt> [#id ...]` | the Map notes tool's export: each note at its place, its painted area and text, and an index (`notes.md`) |
 

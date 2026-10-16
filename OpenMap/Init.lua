@@ -7,6 +7,11 @@
 --   /openmap notes          map notes (paint areas, say what's there, export them)
 --   /openmap debug          the debug overlay (frame rate, frame times, what OpenMap costs)
 --   /openmap bench [zoom]   times the map at several zooms, each part off in turn (Bench.lua)
+--   /openmap pins           the map pins (Pins.lua)
+--   /openmap news           what's new in this version (News.lua)
+--   /openmap draw           the quill: draw on the map (Sketch.lua)
+--   /openmap dungeons       which map each dungeon entrance opens (Dungeons.lua)
+--   /openmap entrance <name>  where you stand, as a dungeon entrance for tools/map-data (Dungeons.lua)
 --------------------------------------------------------------------------------
 
 local ADDON, ns = ...
@@ -21,23 +26,29 @@ local function Options()
 	return { type = "group", name = "|cff" .. ns.ACCENT .. "OpenMap|r " .. ns.version, args = args }
 end
 
+-- OpenMap's settings are the map's own menu (Panel.lua); with the map off (no menu), the options window,
+-- which can turn it back on
 local function OpenOptions()
+	local mod = ns:GetModule("worldmap")
+	if mod.enabled and mod.OpenMenu and mod:OpenMenu() then return end
 	local ACD = LibStub("AceConfigDialog-3.0", true)
 	if ACD then ACD:Open("OpenMap") end
 end
 ns.OpenOptions = OpenOptions
 
 local function Slash(msg)
-	msg = (msg or ""):lower():match("^%s*(.-)%s*$")
+	local raw = (msg or ""):match("^%s*(.-)%s*$")
+	msg = raw:lower()
 	local mod = ns:GetModule("worldmap")
 	local word, rest = msg:match("^(%S+)%s+(.+)$")
-	if word == "bench" then msg = word end         -- (/openmap bench 16: at that zoom)
+	local takes = { bench = true, entrance = true }  -- (/openmap bench 16: at that zoom; /openmap entrance Dire Maul - East)
+	if takes[word] then msg, rest = word, raw:match("^%S+%s+(.+)$") end
 	local run = {
 		status = "Diag", paint = "TogglePaint", notes = "TogglePaint", debug = "ToggleDebugOverlay",
-		bench = "Bench",
+		bench = "Bench", pins = "TogglePins", news = "ToggleNews", entrance = "Entrance", draw = "ToggleSketch", dungeons = "DungeonDiag",
 	}
 	if run[msg] then
-		if mod.enabled and mod[run[msg]] then mod[run[msg]](mod, msg == "bench" and rest or nil) else ns:Print("The map is off.") end
+		if mod.enabled and mod[run[msg]] then mod[run[msg]](mod, takes[msg] and rest or nil) else ns:Print("The map is off.") end
 	else
 		OpenOptions()
 	end
@@ -63,7 +74,7 @@ boot:SetScript("OnEvent", function(self, event, name)
 			local button = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 			button:SetSize(180, 26)
 			button:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
-			button:SetText("Open OpenMap options")
+			button:SetText("Open OpenMap's settings")
 			button:SetScript("OnClick", function()
 				if SettingsPanel then HideUIPanel(SettingsPanel) end
 				OpenOptions()

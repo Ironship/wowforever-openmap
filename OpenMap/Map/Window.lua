@@ -21,7 +21,7 @@ local MIN_W, MIN_H = 480, 320
 d.border = true                 -- the map art's parchment frame round the map, zoomed right out
 
 local map, handle, grip, border  -- (grip: both corners' grips)
-local FillScreen, SetupBorder, SetupQuestLog
+local FillScreen, SetupBorder, SetupQuestLog, TurnArrows
 local blizzardSize              -- the windowed map's own size, for a reset
 local ours = false              -- OpenMap is moving / sizing the window itself (not to be undone)
 
@@ -171,7 +171,7 @@ SetupBorder = function()
 	local watch = CreateFrame("Frame", nil, map)
 	watch:SetScript("OnUpdate", function()
 		local a = 0
-		if mod.db.border and mod.IsStitched() then
+		if mod.db.border and mod.IsStitched() and not (mod.DungeonViewShown and mod.DungeonViewShown()) then
 			local _, _, zoom = mod.ViewNow()
 			local t = math.max(0, math.min(1, ((zoom or 1) - BORDER_FADE[1]) / (BORDER_FADE[2] - BORDER_FADE[1])))
 			a = math.floor((1 - t * t * (3 - 2 * t)) * 50 + 0.5) / 50
@@ -189,6 +189,22 @@ end
 -- just inside the right one), over everything there; its catch reaches well past the window's
 -- edge, and only a little in over the map
 local GRIP, GRIP_OUT, GRIP_IN = 20, 10, 4
+-- the right one, while the quest log is beside the map: bigger, and over the quest log (Blizzard's HIGH
+-- strata, over the map's own), whose scroll bar's bottom arrow was in that corner and took the clicks
+-- (the arrows are lifted clear: SetupQuestLog). Without it the map's own corner is there, with
+-- Blizzard's quest log button: the grip as it was, under that
+local GRIP_RIGHT, GRIP_RIGHT_IN = 30, 10
+local function FitRightGrip()
+	local g = grip and grip[1]
+	if not g then return end
+	local log = map.QuestLog and map.QuestLog:IsShown()
+	local size, inside = log and GRIP_RIGHT or GRIP, log and GRIP_RIGHT_IN or GRIP_IN
+	g:SetSize(size, size)
+	g:SetHitRectInsets(-inside, -GRIP_OUT, -inside, -GRIP_OUT)
+	g:SetFrameStrata(log and "HIGH" or map:GetFrameStrata())
+	g:SetFrameLevel(log and 9990 or border:GetFrameLevel() + 1)
+end
+
 local function Grip(corner)
 	local left = corner == "BOTTOMLEFT"
 	local g = CreateFrame("Button", nil, map)
@@ -209,15 +225,23 @@ local function Grip(corner)
 		local x, y = GetCursorPosition()
 		start = { x = x, y = y, w = map:GetWidth(), h = map:GetHeight(), left = map:GetLeft(), right = map:GetRight(), top = map:GetTop() }
 	end)
-	g:SetScript("OnMouseUp", function()
+	local function Finish()
 		if not start then return end
+		local was = start
 		start = nil
+		-- (a click, no drag: nothing; a refit at the same size puts the whole map up again)
+		if math.abs(map:GetWidth() - was.w) < 0.5 and math.abs(map:GetHeight() - was.h) < 0.5 then return end
 		mod.db.windowSize = { math.floor(map:GetWidth() + 0.5), math.floor(map:GetHeight() + 0.5) }
 		Save()
-		Refit()
-	end)
+		if map:IsShown() then Refit() end
+	end
+	g:SetScript("OnMouseUp", Finish)
+	-- (the map closed mid-drag: the mouse-up never comes here, so the drag ends with the map, or
+	-- the moment the button turns out not to be held)
+	g:SetScript("OnHide", Finish)
 	g:SetScript("OnUpdate", function()
 		if not start then return end
+		if not IsMouseButtonDown("LeftButton") then Finish() return end
 		local x, y = GetCursorPosition()
 		local s = map:GetEffectiveScale()
 		local dx = (x - start.x) / s
@@ -290,6 +314,14 @@ function mod:SetupWindow(worldMap)
 	end
 	handle:HookScript("OnDragStart", function() dragging = true end)
 	handle:HookScript("OnDragStop", function() dragging = false end)
+	-- (the map closed mid-move: no drag stop comes, so the move ends with the map)
+	handle:HookScript("OnHide", function()
+		if not dragging then return end
+		dragging = false
+		map:StopMovingOrSizing()
+		map:SetUserPlaced(false)
+		Save()
+	end)
 	local function Mode()
 		local max = Maximized()
 		handle:SetShown(not max)
@@ -303,7 +335,22 @@ function mod:SetupWindow(worldMap)
 	map:HookScript("OnShow", Mode)
 	SetupBorder()
 	for _, g in ipairs(grip) do g:SetFrameLevel(border:GetFrameLevel() + 1) end
+	FitRightGrip()
 	SetupQuestLog()
+	-- Blizzard's buttons on the map over the parchment border (it's over the map's icons): zoomed right
+	-- out, it hid the quest log's button; and that button's arrows turned (Blizzard's point the other
+	-- way): the log comes in from the right, so in is ◀ and away is ▶
+	local function Buttons()
+		local over = border:GetFrameLevel() + 2
+		for _, f in ipairs(map.overlayFrames or {}) do
+			if f.GetFrameLevel and f:GetFrameLevel() < over then f:SetFrameLevel(over) end
+		end
+		TurnArrows(map.SidePanelToggle)
+		TurnArrows(mod.maxLogToggle)
+	end
+	Buttons()
+	if map.RefreshOverlayFrames then hooksecurefunc(map, "RefreshOverlayFrames", Buttons) end
+	map:HookScript("OnShow", Buttons)
 end
 
 --------------------------------------------------------------------------------
@@ -318,6 +365,22 @@ end
 d.maxQuestLog = false           -- the quest log on the full-screen map
 
 local function Log() return map.QuestLog end
+
+-- a quest log button's arrows the other way round: its open button ◀ (Blizzard's "hide" art), its
+-- close button ▶ ("show"); once each (kept here, not on Blizzard's frame)
+local turned = setmetatable({}, { __mode = "k" })
+TurnArrows = function(toggle)
+	if not toggle or turned[toggle] or not toggle.OpenButton or not toggle.CloseButton then return end
+	turned[toggle] = true
+	local function Art(b, name)
+		if b.SetNormalAtlas then
+			b:SetNormalAtlas(name .. "-Up")
+			b:SetPushedAtlas(name .. "-Down")
+		end
+	end
+	Art(toggle.OpenButton, "QuestCollapse-Hide")
+	Art(toggle.CloseButton, "QuestCollapse-Show")
+end
 
 local function ShowMaxLog(on)
 	local log = Log()
@@ -369,8 +432,25 @@ local function StretchDetails()
 	details:HookScript("OnSizeChanged", FitDetailsPaper)
 end
 
+-- the quest log's scroll bars end this much higher, clear of the window's resize grip in the corner
+local BAR_LIFT = 26
+local function LiftBar(bar)
+	if not bar or bar.omLifted or not bar.GetNumPoints then return end
+	bar.omLifted = true
+	local points = {}
+	for i = 1, bar:GetNumPoints() do points[i] = { bar:GetPoint(i) } end
+	bar:ClearAllPoints()
+	for _, pt in ipairs(points) do
+		local point, rel, relPoint, x, y = pt[1], pt[2], pt[3], pt[4], pt[5]
+		if point:find("^BOTTOM") then y = (y or 0) + BAR_LIFT end
+		bar:SetPoint(point, rel, relPoint, x, y)
+	end
+end
+
 SetupQuestLog = function()
 	local scroll = _G.QuestScrollFrame
+	LiftBar(scroll and scroll.ScrollBar)
+	LiftBar(_G.QuestMapDetailsScrollFrame and _G.QuestMapDetailsScrollFrame.ScrollBar)
 	local bg = scroll and scroll.Background
 	if bg and bg.SetPoint then bg:SetPoint("BOTTOMLEFT", scroll, "BOTTOMLEFT", 0, 0) end
 	if not Log() then return end
@@ -382,6 +462,12 @@ SetupQuestLog = function()
 		toggle:SetPoint("BOTTOMRIGHT", map:GetCanvasContainer(), "BOTTOMRIGHT", -2, 1)
 		toggle:SetFrameLevel(math.min(map.ScrollContainer:GetFrameLevel() + 9300, 9950))
 		toggle.OnClick = function(self) mod.ToggleMaxQuestLog() self:Refresh() end   -- (its buttons call this)
+		-- (open or not: the log OpenMap shows over the map, not Blizzard's side panel, which is never open here)
+		toggle.Refresh = function(self)
+			local open = Log() and Log():IsShown() or false
+			self.OpenButton:SetShown(not open)
+			self.CloseButton:SetShown(open)
+		end
 		toggle:Hide()
 		mod.maxLogToggle = toggle
 	end
@@ -399,8 +485,8 @@ SetupQuestLog = function()
 	end
 	if map.Maximize then hooksecurefunc(map, "Maximize", ShowToggle) end
 	if map.Minimize then hooksecurefunc(map, "Minimize", ShowToggle) end
-	Log():HookScript("OnShow", function() if toggle and toggle:IsShown() then toggle:Refresh() end end)
-	Log():HookScript("OnHide", function() if toggle and toggle:IsShown() then toggle:Refresh() end end)
+	Log():HookScript("OnShow", function() if toggle and toggle:IsShown() then toggle:Refresh() end FitRightGrip() end)
+	Log():HookScript("OnHide", function() if toggle and toggle:IsShown() then toggle:Refresh() end FitRightGrip() end)
 	-- leaving full screen: hidden first (Blizzard only widens the window for a quest log it shows itself)
 	local mm = map.BorderFrame and map.BorderFrame.MaximizeMinimizeFrame
 	local minimize = mm and mm.MinimizeButton

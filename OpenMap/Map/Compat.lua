@@ -4,8 +4,9 @@
 --   * their map art there is hidden while the stitched map shows, and back on other maps
 --     (dungeons, battlegrounds): High Fidelity World Map's minimap tiles and its blend button,
 --     BetterMaps' terrain and caves (under the stitched art: drawn for nothing), HiddenMaps'
---     approach and dungeon maps (over it, catching clicks), Leatrix Maps' icons (under it, their
---     tooltips still showing)
+--     approach and dungeon maps (over it, catching clicks)
+--   * Leatrix Maps' icons (its points of interest: dungeons, flight points, boats, portals ...) are
+--     lifted above the stitched art (they're made at a fixed low frame level on the canvas, under it)
 --   * their view changes (zoom remembered per map, keep centred, a jump into a cave) and their
 --     zoom steps past OpenMap's deepest don't apply there (WorldMap.lua)
 --   * the zone label, the coordinates CVars and the game's map fade are set again after theirs:
@@ -15,6 +16,7 @@
 --------------------------------------------------------------------------------
 
 local _, ns = ...
+local S = ns.MapStitch
 local mod = ns:GetModule("worldmap")
 local L = ns.L
 
@@ -42,11 +44,15 @@ local function Hold(f, reshow)
 	if f:IsShown() then held[f] = reshow f:Hide() end
 end
 
--- Leatrix Maps' icons: plain frames on the canvas, marked by it
+-- Leatrix Maps' icons: plain frames on the canvas, marked by it, made at frame level 100 (under the
+-- stitched art's): lifted above the art, as Questie's are (Extras.lua). Leatrix finds the one under
+-- the cursor itself, from where it placed it, so its tooltips go with them
 local function LeatrixPins()
+	local top = S.artTop
+	if not top then return end
 	local kids = { map:GetCanvas():GetChildren() }     -- (once a map change: every pin is a child)
 	for _, f in ipairs(kids) do
-		if f.isLeaMapsPin then Hold(f, true) end
+		if f.isLeaMapsPin and f:GetFrameLevel() <= top then f:SetFrameLevel(top + 2) end
 	end
 end
 

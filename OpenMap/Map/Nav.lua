@@ -64,8 +64,9 @@ function mod.GetReopenView()
 	-- Preserve existing preferences, including the earlier two-checkbox setting.
 	-- No default for reopenView: it would hide the old preference before migration.
 	if not mod.db.reopenView then
+		-- (a fresh install, nothing saved: on the player, as Blizzard's map opens)
 		mod.db.reopenView = mod.db.rememberViewInView and "visible"
-			or (mod.db.rememberView == false and "player" or "always")
+			or (mod.db.rememberView == true and "always" or "player")
 	end
 	if mod.db.reopenView == "zone" then mod.db.reopenView = "always" end
 	mod.db.rememberView, mod.db.rememberViewInView = nil, nil
@@ -81,8 +82,9 @@ end
 -- otherwise centre on the player. Only for the map Blizzard opens on:
 -- a map put up for something else (a quest's zone, from the quest log or the tracker) shows as
 -- Blizzard shows it, or the view would move the map back and Blizzard would close the quest.
--- (No mapID: whether there's a view to reopen on at all)
-function mod.SavedView(mapID)
+-- (No mapID: whether there's a view to reopen on at all. onlySaved: only a view saved when the map
+-- closed, never the one on the player)
+function mod.SavedView(mapID, onlySaved)
 	local mode = mod.GetReopenView()
 	local zone = Safe.Call(C_Map.GetBestMapForUnit, "player")
 	local restore = saved and mode == "always"
@@ -92,6 +94,7 @@ function mod.SavedView(mapID)
 		local hu, hv = mod.ViewHalfExtents(saved[3])
 		restore = math.abs(u - saved[1]) <= hu and math.abs(v - saved[2]) <= hv
 	end
+	if onlySaved and not restore then return end
 	local display = Safe.Call(MapUtil and MapUtil.GetDisplayableMapForPlayer)
 	if restore then
 		if mapID and mapID ~= saved[5] and mapID ~= zone and mapID ~= display then return end
@@ -103,11 +106,13 @@ function mod.SavedView(mapID)
 end
 
 function mod:OnMapShown()
-	if not mod.SavedView() then return end
 	-- (Blizzard's zoom reset on opening goes straight there, WorldMap.lua; this is for when
-	-- Blizzard puts up another map after it, on the next frame: only if it's not there yet)
+	-- Blizzard puts up another map after it, on the next frame: only if it's not there yet. Only a
+	-- view saved as the map closed: centred on the player, the reset has done it, and moving the view
+	-- again would have the map underneath follow it, away from a quest's zone the quest log put up)
+	if not mod.SavedView(nil, true) then return end
 	C_Timer.After(0, function()
-		local u, v, zoom = mod.SavedView(mod.HostMap())
+		local u, v, zoom = mod.SavedView(mod.HostMap(), true)
 		if not u or not mod.IsStitched() then return end
 		local nu, nv, nz = mod.ViewNow()
 		if nu and math.abs(nu - u) < 1e-4 and math.abs(nv - v) < 1e-4 and math.abs(nz - zoom) < 1e-3 then return end
@@ -122,8 +127,9 @@ end
 local wpSet, RefreshWaypoint
 local WAYPOINT = { atlas = "Waypoint-MapPin-Tracked", texture = "Interface\\Minimap\\Ping\\ping5", size = 30 }
 
--- Blizzard's user waypoint where the client has it (its pin, its arrow); else our own,
--- kept per character. Either shows on the whole stitched map.
+-- The waypoint being followed: Blizzard's user waypoint where the client takes it (its pin, its
+-- arrow); else our own, kept per character (mod.char.pin). Either shows on the whole stitched map,
+-- as its own marker unless it's on one of the map pins (Pins.lua), which then shows as tracked.
 local function BlizzardPin()
 	if not (C_Map.HasUserWaypoint and C_Map.GetUserWaypoint) then return end
 	local ok, has = pcall(C_Map.HasUserWaypoint)
@@ -135,9 +141,18 @@ local function BlizzardPin()
 	end
 end
 
+-- TomTom's waypoint for our pin (its AddWaypoint's handle): gone with the pin, or when another replaces it
+local tomtomPoint
+local function ClearTomTom()
+	local tomtom = _G.TomTom
+	if tomtomPoint and tomtom and tomtom.RemoveWaypoint then pcall(tomtom.RemoveWaypoint, tomtom, tomtomPoint) end
+	tomtomPoint = nil
+end
+
 local function ClearPin()
 	if C_Map.ClearUserWaypoint then pcall(C_Map.ClearUserWaypoint) end
 	mod.char.pin = nil
+	ClearTomTom()
 	RefreshWaypoint()
 end
 
@@ -162,22 +177,30 @@ local function HideBlizzardPin()
 	for pin in map:EnumeratePinsByTemplate("WaypointLocationPinTemplate") do pin:Hide() end
 end
 
+-- the waypoint now: map, x, y, and whether it's our own (not Blizzard's)
+function mod.WaypointPoint()
+	local mapID, x, y = BlizzardPin()
+	if mapID then return mapID, x, y, false end
+	local own = mod.char.pin
+	if own then return own[1], own[2], own[3], true end
+end
+
 function RefreshWaypoint()
 	if not wpSet then return end
 	S.ClearPinSet(wpSet)
-	local mapID, x, y = BlizzardPin()
-	local own = not mapID
-	if own and mod.char.pin then mapID, x, y = mod.char.pin[1], mod.char.pin[2], mod.char.pin[3] end
+	if mod.RefreshPins then mod.RefreshPins() end
+	local mapID, x, y, own = mod.WaypointPoint()
 	HideBlizzardPin()
 	if not mapID or not S.Rect(mapID) then return end
+	if mod.PinAt and mod.PinAt(mapID, x, y) then return end   -- (the pin shows it, as tracked)
 	local u, v = mod.ToWorld(mapID, x, y)
 	local pin = S.AddPin(wpSet, u, v, WAYPOINT)
 	pin:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		local info = C_Map.GetMapInfo(mapID)
-		GameTooltip:AddLine(L["Map pin"], 1, 0.82, 0)
+		GameTooltip:AddLine(L["Waypoint"], 1, 0.82, 0)
 		GameTooltip:AddLine(("%s  %.1f, %.1f"):format(info and info.name or "", x * 100, y * 100), 1, 1, 1)
-		GameTooltip:AddLine(L["Click: remove"], 0.6, 0.6, 0.6)
+		GameTooltip:AddLine(L["Click to stop following it"], 0.6, 0.6, 0.6)
 		if not own then GameTooltip:AddLine(L["Shift-click: share in chat"], 0.6, 0.6, 0.6) end
 		GameTooltip:Show()
 	end)
@@ -185,12 +208,9 @@ function RefreshWaypoint()
 	pin.OnClick = PinClick
 end
 
--- a pin at the world point (normalized): Blizzard's if it takes it, else ours; and TomTom's
-function mod.DropWaypoint(u, v)
-	local chain = S.ChainAt(u, v)
-	local mapID = chain[#chain]
-	if mapID == S.WORLD then return end
-	local x, y = mod.FromWorld(mapID, u, v)
+-- the waypoint followed to a point on a map: Blizzard's if it takes it, else ours; and TomTom's.
+-- `title`: TomTom's name for it (the map's name, else)
+function mod.TrackPoint(mapID, x, y, title)
 	local info = C_Map.GetMapInfo(mapID)
 	local blizzard = false
 	if C_Map.SetUserWaypoint and UiMapPoint and UiMapPoint.CreateFromCoordinates
@@ -200,10 +220,22 @@ function mod.DropWaypoint(u, v)
 	end
 	mod.char.pin = not blizzard and { mapID, x, y } or nil
 	local tomtom = _G.TomTom
+	ClearTomTom()
 	if tomtom and tomtom.AddWaypoint then
-		pcall(tomtom.AddWaypoint, tomtom, mapID, x, y, { title = info and info.name or "OpenMap", from = "OpenMap" })
+		local name = (title and title ~= "") and title or (info and info.name) or "OpenMap"
+		local ok, point = pcall(tomtom.AddWaypoint, tomtom, mapID, x, y, { title = name, from = "OpenMap" })
+		if ok then tomtomPoint = point end
 	end
 	RefreshWaypoint()
+end
+
+-- Ctrl-click, or the menu's Drop a pin: a map pin there (Pins.lua: it's followed, and its note opens)
+function mod.DropWaypoint(u, v)
+	local chain = S.ChainAt(u, v)
+	local mapID = chain[#chain]
+	if mapID == S.WORLD then return end
+	local x, y = mod.FromWorld(mapID, u, v)
+	if mod.AddPin then mod.AddPin(mapID, x, y) else mod.TrackPoint(mapID, x, y) end
 end
 
 -- the pin button: the next click on the map drops a pin there (Ctrl-click always does)
@@ -214,7 +246,7 @@ function mod.SetPinMode(on)
 	pinArmed = on and true or false
 	if mod.OnPinMode then mod.OnPinMode(pinArmed) end
 end
-function mod.ClearPin() ClearPin() end
+function mod.ClearPin() ClearPin() end         -- (the waypoint: no longer followed)
 
 --------------------------------------------------------------------------------
 -- Search
@@ -242,8 +274,11 @@ local function Places()
 		end
 	end
 	for _, g in ipairs((ns.MapPlaces or {}).instances or {}) do
-		local u, v = S.FromYards(g[1], g[2], g[3])
-		for _, inst in ipairs(g[4]) do add(S.InstanceName(inst), inst[3] and L["Raid"] or L["Dungeon"], u, v) end
+		local u, v
+		if S.EntranceAt then u, v = S.EntranceAt(g) else u, v = S.FromYards(g[1], g[2], g[3]) end   -- (Dungeons.lua)
+		if u then
+			for _, inst in ipairs(g[4]) do add(S.InstanceName(inst), inst[3] and L["Raid"] or L["Dungeon"], u, v) end
+		end
 	end
 	for _, node in pairs((ns.MapFlights or {}).nodes or {}) do
 		local u, v = S.FromYards(node[2], node[3], node[4])
@@ -300,7 +335,7 @@ local function ShowResults()
 		if not row then
 			row = CreateFrame("Button", nil, list)
 			row:SetSize(220, 18)
-			row:SetPoint("TOPLEFT", 6, -4 - (i - 1) * 18)
+			row:SetPoint("TOPLEFT", list.pad[1], -list.pad[2] - (i - 1) * 18)
 			row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
 			row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 			row.name:SetPoint("LEFT", 4, 0)
@@ -314,7 +349,7 @@ local function ShowResults()
 		row.kind:SetText(found[i][1].kind)
 		row:Show()
 	end
-	list:SetHeight(8 + math.min(#found, MAX_RESULTS) * 18)
+	list:SetHeight(list.pad[2] + list.pad[4] + math.min(#found, MAX_RESULTS) * 18)
 	list:Show()
 	list.first = found[1][1]
 end
@@ -328,10 +363,10 @@ function mod.CreateSearch(parent, width)
 	if box.Instructions then box.Instructions:SetText(L["Find a place"]) end
 	list = CreateFrame("Frame", nil, parent)
 	list:SetPoint("TOPLEFT", box, "BOTTOMLEFT", -6, -2)
-	list:SetWidth(232)
-	list:SetFrameStrata("DIALOG")
+	list:SetWidth(240)
+	list:SetFrameStrata("FULLSCREEN_DIALOG")      -- (over the menu's tiles below it: they're in its strata)
 	list:EnableMouse(true)
-	Look:Panel(list, { inset = 0, alpha = 0.95 })
+	list.pad = { Look:Dropdown(list) }              -- (the game's own dropdowns' look)
 	list:Hide()
 	box:HookScript("OnTextChanged", ShowResults)
 	box:SetScript("OnEnterPressed", function() if list:IsShown() and list.first then Go(list.first) else box:ClearFocus() end end)

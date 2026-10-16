@@ -61,7 +61,7 @@ table CSVs, `<tex>` a texture cache. Order matters where one step reads another'
 
 | Step | Script | Writes | Needs |
 | --- | --- | --- | --- |
-| 1 | `tools/map-data/build.py <cache>` | `Data/Reveal.lua`, `Data/Places.lua` | |
+| 1 | `tools/map-data/build.py <cache>` | `Data/Reveal.lua`, `Data/Places.lua` | `ENTRANCES` (below) |
 | 2 | `tools/map-data/minimap.py <cache>` | `Data/Minimap.lua` | |
 | 3 | `tools/map-flights/flights.py <db2> OpenMap/Data/FlightData.lua` | `Data/FlightData.lua` | |
 | 4 | `tools/map-caves/build.py <cache>` | `Data/Caves.lua`, `MapCave/` | |
@@ -77,6 +77,14 @@ table CSVs, `<tex>` a texture cache. Order matters where one step reads another'
 | 13a | `tools/map-preview/minimaplod.py <db2> <tex>` | `MapMiniLOD/`, `Data/MinimapLOD.lua` | 13 |
 | 14 | `tools/map-art/border.py` | `MapBorder/` | `art-edits/border.png` |
 | 15 | `tools/map-preview/render.py <db2> <tex> <out> --bake-zones` | `MapZones/`, `Data/ZoneArt.lua` | 5, 7, 8, 11, 12 |
+| 16 | `tools/changelog/build.py` (after any change to `CHANGELOG.md`) | `Data/Changelog.lua` | |
+| 17 | `tools/map-dungeons/build.py <cache> <WoW folder> [preview dir]` | `Data/DungeonMaps.lua` | 1 |
+
+A dungeon entrance the game's tables don't have (a Dire Maul wing's own door, a second way in,
+WoW Forever's new dungeons): stand in the portal in game and type `/openmap entrance <name>`, with
+the name as `build.py` lists it (`Dire Maul - East`, `The Hall of Thanes`). It prints the line (and
+keeps it in `OpenMapDB`, `worldmap.entrances`); add it to `ENTRANCES` in `tools/map-data/build.py`
+and rerun step 1.
 
 `gapfill.py --rerender` re-renders the zones (slow) after anything that changes them
 (steps 5, 7, 8, 11), and so does `--bake-zones` (step 15: the zones' art as the map draws it,

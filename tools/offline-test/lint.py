@@ -122,10 +122,12 @@ def check_truncation(path):
 WOW_API = {
     "CreateFrame", "CreateFromMixins", "CreateVector2D", "Clamp", "HideUIPanel", "ShowUIPanel",
     "LibStub", "GetTime", "GetCursorPosition", "InCombatLockdown", "IsControlKeyDown", "IsShiftKeyDown",
-    "StaticPopup_Show", "UnitClass", "UnitExists", "UnitIsUnit", "UnitFactionGroup", "UnitOnTaxi",
+    "StaticPopup_Show", "StaticPopup_Hide", "UnitClass", "UnitExists", "UnitIsUnit", "UnitFactionGroup", "UnitOnTaxi",
     "IsInGroup", "IsInRaid", "GetNumRoutes", "NumTaxiNodes", "TaxiNodeGetType", "TaxiNodeName",
     "GetAddOnMemoryUsage", "UpdateAddOnMemoryUsage", "UnitLevel", "GetQuestDifficultyColor", "GetCVar",
-    "debugprofilestop", "GetFramerate", "IsAddOnLoaded", "GetUnitSpeed", "IsModifiedClick", "GetPhysicalScreenSize",
+    "debugprofilestop", "GetFramerate", "IsAddOnLoaded", "GetUnitSpeed", "IsModifiedClick", "GetPhysicalScreenSize", "IsMouseButtonDown",
+    "IsInGuild", "UnitIsPlayer", "GetUnitName", "UnitName", "Ambiguate", "ToggleWorldMap",
+    "UnitRace", "GetLocale", "PlaySound",
 }
 
 
@@ -176,6 +178,13 @@ for path in sorted(glob.glob(os.path.join(ROOT, "*.lua")) + glob.glob(os.path.jo
     problems += check_calls(path)
     problems += check_truncation(path)
     problems += check_shared(path)
+# the "What's new" window's notes (Data/Changelog.lua) are made from CHANGELOG.md: they must agree,
+# or a release ships last version's notes
+sys.path.insert(0, os.path.join(ROOT, "..", "tools", "changelog"))
+import build as changelog
+_have = os.path.join(ROOT, "Data", "Changelog.lua")
+if not os.path.exists(_have) or open(_have, encoding="utf-8").read() != changelog.build():
+    problems.append("Data/Changelog.lua is out of date with CHANGELOG.md: run python -P tools/changelog/build.py")
 for p in problems:
     print(p)
 print(f"lint: {len(problems)} problem(s)")

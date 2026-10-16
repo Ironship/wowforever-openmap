@@ -1,48 +1,98 @@
 --------------------------------------------------------------------------------
--- Report a problem (beta feedback), from the map's menu: about a spot on the map (circle it:
--- drag) or anything else (the menu, settings, another addon: no circle), say what's wrong, and
--- get a short report code to paste into a GitHub issue (addons can't send anything themselves).
--- The code carries the place, zoom, circles and note, so tools/map-preview/report.py can render
--- exactly what the player saw, circles and all.
+-- Report a problem (beta feedback), from the map's menu: draw where it's wrong if it's about a spot
+-- (the quill, Sketch.lua, in red; on a dungeon's map, on its picture: Dungeons.lua's markup), or
+-- nothing (the menu, settings, another addon), say what's wrong, and get a short report code to paste
+-- into a GitHub issue (addons can't send anything themselves). The code carries the place, zoom, what
+-- was drawn and the note, so tools/map-preview/report.py can render what the player saw.
 --
--- Code: OM1|<version>|<mapID>|<u>|<v>|<zoom>|<circles u:v:r;...>|<note>
+-- Code: OM1|<version>|<mapID>|<u>|<v>|<zoom>|<marks>|<note>
+-- marks, ";" between: a circle "u:v:r" round each drawing (the web map's markers), then each drawing:
+--   d<tool><ink><nib>:<u>,<v>,...   on the world (tool q pen, l line, a arrow, r ring, m mark: then its
+--                                   ink is the mark's number); u, v x 100000
+--   g<instance>                     a dungeon's map (the instance's map ID), its drawings as
+--   f<floor>:<x>,<y>,...            pen lines on that floor's picture, x, y (0..1 of it) x 10000
+-- (Readers that know only circles skip the rest: they don't split into three numbers.)
 --------------------------------------------------------------------------------
 
 local _, ns = ...
-local S = ns.MapStitch
 local mod = ns:GetModule("worldmap")
-local Look = ns.Look
+local L = ns.L
 
-local map, sc, catcher, bar
-local circles = {}              -- { u, v, r } in world units (normalized)
-local drawing                   -- the circle being dragged: { u, v }
+local map
+local drawn = {}                -- what was drawn for this report: the quill's strokes, or the dungeon's lines
+local where                     -- on a dungeon's map: { inst, u, v (its entrance) }
 local reporting = false
-local RED = { 0.85, 0.15, 0.1 }
+local codeFrame
 
-local function Redraw()
-	S.ClearMarks()
-	for _, c in ipairs(circles) do
-		-- a ring of dabs: reads as a hand-drawn circle
-		local n = 28
-		for k = 1, n do
-			local a = k / n * 2 * math.pi
-			S.AddMark(c[1] + math.cos(a) * c[3], c[2] + math.sin(a) * c[3] * 1.5, c[3] * 0.09, RED[1], RED[2], RED[3], 0.85)
-		end
+-- the report over: its drawing off the map (and off a dungeon's)
+local function EndReport()
+	reporting = false
+	if mod.HoldSketch then mod.HoldSketch(nil) end
+	if mod.DungeonMarkupRelease then mod.DungeonMarkupRelease() end
+end
+local MAX_POINTS = 600          -- in all (the code stays a line you can paste)
+
+-- a circle round some world points: u, v, r (r across, in u; it's r x 1.5 tall in v: the world's 3:2)
+local function Round(pts)
+	local u0, v0, u1, v1 = math.huge, math.huge, -math.huge, -math.huge
+	for k = 1, #pts - 1, 2 do
+		u0, u1 = math.min(u0, pts[k]), math.max(u1, pts[k])
+		v0, v1 = math.min(v0, pts[k + 1]), math.max(v1, pts[k + 1])
 	end
+	return (u0 + u1) / 2, (v0 + v1) / 2, math.max(0.0005, math.max(u1 - u0, (v1 - v0) / 1.5) / 2 * 1.15)
 end
 
+local TOOL = { quill = "q", line = "l", arrow = "a", ring = "r", mark = "m" }
+
+local function Marks()
+	local circles, lines, left = {}, {}, MAX_POINTS
+	local function Ints(pts, k)
+		local out = {}
+		for i = 1, #pts do out[i] = math.floor(pts[i] * k + 0.5) end
+		return table.concat(out, ",")
+	end
+	if where then
+		if where.u then circles[1] = ("%.5f:%.5f:%.5f"):format(where.u, where.v, 0.002) end   -- (its entrance)
+		lines[1] = "g" .. where.inst
+		for _, st in ipairs(drawn) do
+			if #st.pts / 2 <= left then
+				left = left - #st.pts / 2
+				lines[#lines + 1] = ("f%d:%s"):format(st.floor, Ints(st.pts, 10000))
+			end
+		end
+	else
+		for _, st in ipairs(drawn) do
+			if #st.pts / 2 <= left and TOOL[st.tool] then
+				left = left - #st.pts / 2
+				local pts = st.pts
+				if st.tool == "ring" and #pts >= 4 then
+					-- (round on the screen: as wide across in world units as the drag)
+					local W, H = ns.MapStitch.Size()
+					local r = math.sqrt(((pts[3] - pts[1]) * W) ^ 2 + ((pts[4] - pts[2]) * H) ^ 2) / W
+					circles[#circles + 1] = ("%.5f:%.5f:%.5f"):format(pts[1], pts[2], math.max(0.0005, r * 1.1))
+				else
+					circles[#circles + 1] = ("%.5f:%.5f:%.5f"):format(Round(pts))
+				end
+				local ink = st.tool == "mark" and (st.mark or 8) or (st.ink or 2)
+				lines[#lines + 1] = ("d%s%d%d:%s"):format(TOOL[st.tool], ink % 10, (st.size or 2) % 10, Ints(pts, 100000))
+			end
+		end
+	end
+	for i = #circles, 21, -1 do circles[i] = nil end   -- (the web map takes twenty)
+	for _, l in ipairs(lines) do circles[#circles + 1] = l end
+	return table.concat(circles, ";")
+end
 
 local function Code(note)
 	local u, v, zoom = mod.ViewNow()
-	local parts = {}
-	for _, c in ipairs(circles) do parts[#parts + 1] = ("%.5f:%.5f:%.5f"):format(c[1], c[2], c[3]) end
+	if where and where.u then u, v = where.u, where.v end   -- (a dungeon's map: where its entrance is)
 	note = (note or ""):gsub("[|\n\r]", " ")
 	return ("OM1|%s|%d|%.5f|%.5f|%.2f|%s|%s"):format(ns.version, map:GetMapID() or 0, u or 0, v or 0, zoom or 0,
-		table.concat(parts, ";"), note)
+		Marks(), note)
 end
 
 StaticPopupDialogs.OPENMAP_REPORT_NOTE = {
-	text = "What's wrong?\n|cffaaaaaa(the map, the menu, a setting ... anything: a sentence is plenty)|r",
+	text = "|cffffd100Report, step 2 of 2:|r what's wrong?\n|cffaaaaaa(the map, the menu, a setting ... anything: a sentence is plenty)|r",
 	hasEditBox = true,
 	editBoxWidth = 340,
 	button1 = CONTINUE or "Continue",
@@ -57,11 +107,12 @@ StaticPopupDialogs.OPENMAP_REPORT_NOTE = {
 		dialog:Hide()
 	end,
 	EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
+	-- (put away without a code: the report's over, what was drawn with it)
+	OnHide = function() if not (codeFrame and codeFrame:IsShown()) then EndReport() end end,
 	timeout = 0, whileDead = true, hideOnEscape = true,
 }
 
 -- the code and where to paste it, both selectable for Ctrl-C
-local codeFrame
 function mod:ShowReportCode(code)
 	-- the last few, in case one needs copying again
 	mod.char.reports = mod.char.reports or {}
@@ -73,7 +124,7 @@ function mod:ShowReportCode(code)
 		codeFrame:SetPoint("CENTER")
 		codeFrame:SetFrameStrata("DIALOG")
 		codeFrame:EnableMouse(true)
-		Look:Panel(codeFrame, { inset = 0, alpha = 0.95 })
+		ns.Look:Panel(codeFrame, { inset = 0, alpha = 0.95 })
 		tinsert(UISpecialFrames, "OpenMapReport")
 		local close = CreateFrame("Button", nil, codeFrame, "UIPanelCloseButton")
 		close:SetPoint("TOPRIGHT", 2, 2)
@@ -96,7 +147,8 @@ function mod:ShowReportCode(code)
 		tip:SetPoint("TOPLEFT", 14, -140)
 		tip:SetWidth(490)
 		tip:SetJustifyH("LEFT")
-		tip:SetText("Thanks! The code says where you were looking (and what you circled, if anything), so we can see what you saw.")
+		tip:SetText("Thanks! The code says where you were looking (and what you drew, if anything), so we can see what you saw.")
+		codeFrame:SetScript("OnHide", function() EndReport() end)   -- (its drawing kept on show till then)
 	end
 	codeFrame.url.value = ns.ISSUES_URL
 	codeFrame.url:SetText(ns.ISSUES_URL)
@@ -104,90 +156,56 @@ function mod:ShowReportCode(code)
 	codeFrame.code:SetText(code)
 	codeFrame:Show()
 	codeFrame.code:SetFocus()
-	mod:ToggleReport(false)
 end
 
---------------------------------------------------------------------------------
--- Circling on the map
---------------------------------------------------------------------------------
-
-local function UpdateDrag()
-	if not drawing then return end
-	local u, v = mod.CursorWorld()
-	if not u then return end
-	local r = math.max(0.0005, math.sqrt((u - drawing[1]) ^ 2 + ((v - drawing[2]) / 1.5) ^ 2))
-	circles[#circles] = { drawing[1], drawing[2], r }
-	Redraw()
+-- on to the note, with what was drawn (nothing: the report's about no one spot); the drawing stays on
+-- show while the note's written and the code's copied
+local function Next(list, place)
+	drawn, where = list or {}, place
+	if not place and mod.HoldSketch and #drawn > 0 then mod.HoldSketch(drawn) end
+	StaticPopup_Show("OPENMAP_REPORT_NOTE")
 end
 
+function mod.IsReporting() return reporting end
+
+-- start a report (on: true), or put one down (false); nil: start one, or put down the one going
 function mod:ToggleReport(on)
 	if on == nil then on = not reporting end
-	if on and not mod.IsStitched() then
-		-- (a dungeon map and the like: nothing to circle, but the problem can still be said)
-		wipe(circles)
-		StaticPopup_Show("OPENMAP_REPORT_NOTE")
+	if not on then
+		if reporting then
+			reporting = false
+			if mod:IsSketching() then mod:ToggleSketch(false) end
+			if mod.DungeonMarkup then mod.DungeonMarkup(false) end
+			StaticPopup_Hide("OPENMAP_REPORT_NOTE")
+		end
+		EndReport()
 		return
 	end
-	if on and mod.IsPainting and mod:IsPainting() then mod:TogglePaint(false) end
-	reporting = on and true or false
-	catcher:SetShown(reporting)
-	bar:SetShown(reporting)
-	S.SetMarksShown(reporting)
-	if reporting then wipe(circles); Redraw() else S.ClearMarks() end
+	EndReport()                                 -- (one before it, its drawing still on show)
+	if mod.IsPainting and mod:IsPainting() then mod:TogglePaint(false) end
+	reporting = true
+	drawn, where = {}, nil
+	-- a dungeon's map: drawn on its picture
+	if mod.DungeonViewShown and mod.DungeonViewShown() and mod.DungeonMarkup then
+		mod.DungeonMarkup(true, function(list, place, finished)
+			if finished then Next(list, place) else reporting = false end
+		end)
+		return
+	end
+	-- Blizzard's own maps (not stitched): nothing to draw on, but the problem can still be said
+	if not mod.IsStitched() then Next() return end
+	mod:ToggleSketch(true, nil, nil, {
+		head = L["Report a problem"],
+		title = L["|cffffd100Step 1 of 2:|r draw where it's wrong (if it's a spot), then Next"],
+		done = L["Next"] .. "  >",
+		doneTip = L["On to saying what's wrong (Escape: no report)"],
+		onEnd = function(strokes, finished)
+			if finished then Next(strokes) else reporting = false end
+		end,
+	})
 end
 
 function mod:SetupReport(worldMap)
-	map, sc = worldMap, worldMap.ScrollContainer
-
-
-	-- drags on the map draw circles; right-drag still pans, the wheel still zooms
-	catcher = CreateFrame("Frame", nil, sc)
-	catcher:SetAllPoints(sc)
-	catcher:SetFrameLevel(math.min(sc:GetFrameLevel() + 9200, 9940))
-	catcher:EnableMouse(true)
-	catcher:EnableMouseWheel(true)
-	catcher:Hide()
-	local panning
-	catcher:SetScript("OnMouseDown", function(_, b)
-		if b == "LeftButton" then
-			local u, v = mod.CursorWorld()
-			if u then drawing = { u, v }; circles[#circles + 1] = { u, v, 0.0005 } end
-		else
-			panning = true
-			sc:OnMouseDown("LeftButton")
-		end
-	end)
-	catcher:SetScript("OnMouseUp", function(_, b)
-		if b == "LeftButton" then
-			drawing = nil
-		elseif panning then
-			panning = false
-			sc.mouseButtonInfo.LeftButton.down = false
-		end
-	end)
-	catcher:SetScript("OnMouseWheel", function(_, delta) mod.WheelZoom(delta) end)
-	catcher:SetScript("OnUpdate", UpdateDrag)
-
-	bar = CreateFrame("Frame", nil, map)
-	mod.padRoots[#mod.padRoots + 1] = bar      -- (the gamepad's cursor presses its buttons: Gamepad.lua)
-	bar:SetPoint("TOP", sc, "TOP", 0, -6)
-	bar:SetSize(560, 34)
-	bar:SetFrameLevel(math.min(sc:GetFrameLevel() + 9400, 9960))
-	bar:EnableMouse(true)
-	Look:Panel(bar, { inset = 0, alpha = 0.92 })
-	local text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	text:SetPoint("LEFT", 10, 0)
-	text:SetText("|cffffd100Drag|r to circle a spot (if it's about one)   |cffffd100Next|r to say what's wrong   |cffffd100Right-drag|r pan")
-	local function Btn(label, x, fn)
-		local b = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
-		b:SetSize(70, 22)
-		b:SetPoint("RIGHT", x, 0)
-		b:SetText(label)
-		b:SetScript("OnClick", fn)
-	end
-	Btn("Next", -82, function() StaticPopup_Show("OPENMAP_REPORT_NOTE") end)
-	Btn("Cancel", -8, function() mod:ToggleReport(false) end)
-	Btn("Undo", -156, function() tremove(circles); Redraw() end)
-	bar:Hide()
+	map = worldMap
 	map:HookScript("OnHide", function() if reporting then mod:ToggleReport(false) end end)
 end

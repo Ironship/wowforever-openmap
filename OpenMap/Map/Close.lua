@@ -37,6 +37,7 @@ local miniFade, deepFade = { 20, 34 }, { 30, 48 }   -- (the fades as set: kept, 
 local CITY_MINI = 0.5           -- the most the minimap shows over a city's own map
 local CITY_MINI_OF = {          -- ... less over these: their own plan is detailed, and comes in from further out
 	[1454] = 0.15,              --  (Orgrimmar)
+	[1456] = 0.15,              --  (Thunder Bluff)
 }
 local GAP_FADE, GAP_MIX = { 4, 8 }, 0.6   -- ... and in the gaps between zones: where, and how strongly
 local GAP_MAX = 220             -- tiles at most (it starts further out, so more are in view)
@@ -550,9 +551,13 @@ local function Try(name, fn, ...)
 	end
 end
 
--- the view: centre (normalized), half extents (normalized), zoom
+-- the view: centre (normalized), half extents (normalized), zoom (by the area in view: WorldMap.lua's
+-- DetailK), and `steps`: the plain zoom, from the whole world fitting, as far as the wheel has gone.
+-- The minimap's fades go by that: the same wheel turns in a small window or full screen (by the
+-- area, the full screen's wide view took it in later)
 S.closeView = {}
-function S.SetView(u, v, hu, hv, zoom)
+function S.SetView(u, v, hu, hv, zoom, steps)
+	steps = steps or zoom
 	local L = S.closeLayers
 	if not L then return end
 	local cv = S.closeView
@@ -573,8 +578,8 @@ function S.SetView(u, v, hu, hv, zoom)
 	deepFade[1], deepFade[2] = DEEP_FADE[1] * math.max(1, k), DEEP_FADE[2] * math.max(1, k)
 	local most = mod.db.minimapDeep or 1                     -- (the most it ever shows)
 	local from = mod.db.minimapFrom or MINI_FADE[1]
-	local mix = math.min(base, most) * (from <= MINI_FROM[1] and 1 or Smooth(zoom, miniFade))   -- (at the least: from the whole world)
-	if base > 0 then mix = mix + (most - mix) * Smooth(zoom, deepFade) end
+	local mix = math.min(base, most) * (from <= MINI_FROM[1] and 1 or Smooth(steps, miniFade))   -- (at the least: from the whole world)
+	if base > 0 then mix = mix + (most - mix) * Smooth(steps, deepFade) end
 	-- not over a city's own map (the minimap there is the surface, not the city)
 	mix = mix * (1 - (Try("cities", S.CityCover, u, v) or 0))
 	-- and over the cities on the surface no more than CITY_MINI (or the city's own): their own plan leads
@@ -585,7 +590,7 @@ function S.SetView(u, v, hu, hv, zoom)
 	local conts = Try("continents", ContinentsInView, u, v, hu, hv) or {}
 	Try("minimap", UpdateMinimap, L.minimap, conts, u, v, hu, hv, mix)
 	cv.gapTiles = Try("minimap in the gaps", UpdateGapMinimap, conts, u, v, hu, hv,
-		mod.db.minimap and mod.db.gapMinimap and GAP_MIX * Smooth(zoom, GAP_FADE) or 0)
+		mod.db.minimap and mod.db.gapMinimap and GAP_MIX * Smooth(steps, GAP_FADE) or 0)
 	local under = Try("underground", UpdateUnderground, L.under, cont, u, v, hu, hv) or 0
 	-- the out-of-focus world above a cave gets heavier grain
 	Try("grain", UpdateGrain, L.grain, u, v, hu, hv, math.max(soft, math.min(1.4, under * 1.4)))

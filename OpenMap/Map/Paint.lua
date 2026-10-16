@@ -381,7 +381,7 @@ local function BuildList()
 			GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 			GameTooltip:AddLine(("#%d %s · %s"):format(self.note.id, KindOf(self.note).name, ZoneName(self.note.zone)), 1, 0.82, 0)
 			if self.note.text ~= "" then GameTooltip:AddLine(self.note.text, 1, 1, 1, true) end
-			GameTooltip:AddLine(L["Click: go there. Right-click: edit."], 0.6, 0.6, 0.6)
+			GameTooltip:AddLine(L["Click to go there, right-click to edit"], 0.6, 0.6, 0.6)
 			GameTooltip:Show()
 		end)
 		row:SetScript("OnLeave", GameTooltip_Hide)
@@ -606,6 +606,7 @@ function mod:TogglePaint(on)
 		return
 	end
 	if on and mod.ToggleReport then mod:ToggleReport(false) end
+	if on and mod.IsSketching and mod:IsSketching() then mod:ToggleSketch(false) end   -- (one catcher on the map at a time)
 	painting = on and true or false
 	catcher:SetShown(painting)
 	bar:SetShown(painting)

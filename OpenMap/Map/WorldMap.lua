@@ -74,6 +74,18 @@ local function K(mapID)
 end
 
 local function ZoomFor(mapID, scale) return scale * K(mapID) / FitPx() end
+
+-- the zoom the layers fade by (Stitch.lua's S.SetZoom, Close.lua's S.SetView): by how much of the
+-- world is in view, its area, not how far it is from fitting it. A view the world map's shape (3:2)
+-- is the same; a tall one (or a very wide one) fits the world across its narrow side and shows much
+-- more of it the other way, so at the same zoom the zones would come in while it still shows a
+-- continent's worth of map
+local function DetailK()
+	local W, H = S.Size()
+	local w, h = sc:GetWidth(), sc:GetHeight()
+	if not W or w <= 0 or h <= 0 then return 1 end
+	return math.min(w / W, h / H) / math.sqrt(w * h / (W * H))
+end
 local function ScaleFor(mapID, zoom) return zoom * FitPx() / K(mapID) end
 
 -- the zoom at which `mapID` just fits the view
@@ -420,9 +432,10 @@ viewFrame:SetScript("OnUpdate", Ours("view update", function(self)
 	live[1], live[2], live[3], live[4], live[5] = u, v, zoom, sc:GetWidth(), sc:GetHeight()
 	local pu, pv = PerPx(zoom)
 	local g, t0 = Before(), Clock()
-	S.SetView(u, v, sc:GetWidth() / 2 * pu, sc:GetHeight() / 2 * pv, zoom)
+	S.SetView(u, v, sc:GetWidth() / 2 * pu, sc:GetHeight() / 2 * pv, zoom * DetailK(), zoom)
 	After("close-up", g)
 	Clocked("OpenMap's view update", t0)
+	if mod.OnViewMoved then mod.OnViewMoved() end   -- (API.lua: other addons told, a few times a second at most)
 end))
 local function ApplyView()
 	if active then viewFrame:Show() end
@@ -431,7 +444,7 @@ end
 local function ApplyZoom()
 	if not active then return end
 	local g, t0 = Before(), Clock()
-	S.SetZoom(ZoomFor(map:GetMapID(), sc:GetCanvasScale()), sc:GetCanvasScale())
+	S.SetZoom(ZoomFor(map:GetMapID(), sc:GetCanvasScale()) * DetailK(), sc:GetCanvasScale())
 	After("zoom", g)
 	Clocked("OpenMap's zoom update", t0)
 	ApplyView()
@@ -463,6 +476,7 @@ local function Attach(mapID)
 		ticker:Hide()
 		anim = nil
 		if mod.IsPainting and mod:IsPainting() then mod:TogglePaint(false) end
+		if mod.IsSketching and mod:IsSketching() then mod:ToggleSketch(false) end
 	end
 	if mod.OnStitchedChanged then mod.OnStitchedChanged(active) end
 end
@@ -475,7 +489,9 @@ local function OnCreateZoomLevels(self)
 			fl:GetValidFrameLevel("PIN_FRAME_LEVEL_OPENMAP_ICONS"))
 		if mod.BuildFlights then mod:BuildFlights() end
 		if mod.BuildPaint then mod:BuildPaint() end
+		if mod.BuildSketch then mod:BuildSketch() end
 		if mod.BuildNav then mod:BuildNav() end
+		if mod.BuildMapPins then mod:BuildMapPins() end
 		mod:Refresh()
 	end
 	Attach(self.mapID)
@@ -499,15 +515,18 @@ end
 -- there (closed and reopened without moving), nothing at all. The window resized while open
 -- (full screen and back, or dragged): where you were looking, at the same framing. Another
 -- map put up while it's open (the quest log's, the dropdown's) shows whole, as Blizzard's does
+local beforeReset                 -- the view on screen when Blizzard last put up a map: { u, v, zoom, at = GetTime() }
 local function ResetView(self)
 	userMoved = false
 	anim = nil
+	if live and map:IsShown() then beforeReset = { live[1], live[2], live[3], at = GetTime() } end
 	local u, v, zoom
 	if live and map:IsShown() and (math.abs(sc:GetWidth() - live[4]) > 0.5 or math.abs(sc:GetHeight() - live[5]) > 0.5) then
 		u, v, zoom = live[1], live[2], live[3]
 	elseif not live and mod.SavedView then          -- (no view drawn yet: the map is opening)
 		u, v, zoom = mod.SavedView(self.mapID)
 	end
+	if not u and mod.ReturnView then u, v, zoom = mod.ReturnView(self.mapID) end   -- (out of a dungeon's map: Dungeons.lua)
 	if u then
 		zoom = Clamp(zoom, 1, MaxZoomAt(u, v))
 		local nu, nv, nz = View()
@@ -702,6 +721,7 @@ local function Setup()
 		GlideTo((u0 + u1) / 2, (v0 + v1) / 2, z * (fill or 1))
 	end
 	S.OpenMap = function(mapID) map:SetMapID(mapID) end
+	S.Switching = function() return switching end   -- (the map underneath following the view, not another map put up)
 	hooksecurefunc(sc, "CreateZoomLevels", Ours("zoom levels", OnCreateZoomLevels))
 	local blizzardReset, ourReset = sc.ResetZoom, Ours("reset zoom", ResetView)
 	sc.ResetZoom = function(self, ...)
@@ -766,6 +786,15 @@ local function Setup()
 		map:AddCursorHandler(function() if active and mod.PinMode and mod.PinMode() then return "MAP_PIN_CURSOR" end end, 1000)
 	end
 	HookHighlight()
+	-- a quest's details, Back: the map stays where you're looking (most likely at the quest's place,
+	-- to pick another nearby). Blizzard puts back the map it was on when they opened, and a map Blizzard
+	-- puts up shows whole: the view from just before that comes back
+	if QuestMapFrame_ReturnFromQuestDetails then
+		hooksecurefunc("QuestMapFrame_ReturnFromQuestDetails", function()
+			local b = beforeReset
+			if b and b.at == GetTime() and active and map:IsShown() then mod.ShowNow(b[1], b[2], b[3]) end
+		end)
+	end
 
 	local dp = CreateFromMixins(MapCanvasDataProviderMixin)
 	dp.OnCanvasScaleChanged = Ours("scale changed", ApplyZoom)
@@ -800,8 +829,13 @@ local function Setup()
 	if mod.SetupFlights then mod:SetupFlights() end
 	ns.RegisterEvent(mod, "MAP_EXPLORATION_UPDATED", function() if S.IsBuilt() then S.RefreshExplored() end end)
 	if mod.SetupNav then mod:SetupNav(map) end          -- (before the menu: it holds Nav's search box)
+	if mod.SetupPins then mod:SetupPins(map) end
+	if mod.SetupDungeons then mod:SetupDungeons(map) end
+	if mod.SetupCombat then mod:SetupCombat(map) end
+	if mod.SetupNews then mod:SetupNews() end
 	if mod.SetupPanel then mod:SetupPanel(map) end
 	if mod.SetupPaint then mod:SetupPaint(map) end
+	if mod.SetupSketch then mod:SetupSketch(map) end
 	if mod.SetupDebug then mod:SetupDebug(map) end
 	if mod.SetupBench then mod:SetupBench(map) end
 	if mod.SetupGamepad then mod:SetupGamepad(map) end
@@ -876,6 +910,8 @@ function mod:Refresh()
 	ApplyZoom()
 	if self.RefreshExtras then self.RefreshExtras() end
 	if self.RefreshTownsfolk then self:RefreshTownsfolk() end
+	if self.RefreshDungeonCard then self.RefreshDungeonCard() end
+	if self.RefreshSketch then self.RefreshSketch() end
 	if self.RefreshPanel then self:RefreshPanel() end
 end
 
@@ -972,13 +1008,35 @@ function mod:Options()
 		iconHeader = ns.Header("Icons", 30),
 		routes = { type = "toggle", name = "Boat and zeppelin routes", order = 34, get = get, set = set, disabled = off },
 		icons = { type = "toggle", name = "Dungeons, travel and more", order = 31, get = get, set = set, disabled = off,
-			desc = "Dungeon and raid entrances, boats and zeppelins (click: the other end)." },
+			desc = "Dungeon and raid entrances, with their levels (click one: its map), boats and zeppelins (click: the other end)." },
 		flight = { type = "toggle", name = "Flight masters", order = 32, get = get, set = set,
 			disabled = off },
 	}
 	if mod.ExtraOptions then mod:ExtraOptions(opts, get, set, off) end
 	if mod.NavOptions then mod:NavOptions(opts, get, set, off) end
+	if mod.PinOptions then mod:PinOptions(opts, get, set, off) end
+	if mod.DungeonOptions then mod:DungeonOptions(opts, get, set, off) end
+	if mod.SketchOptions then mod:SketchOptions(opts, get, set, off) end
 	if mod.WindowOptions then mod:WindowOptions(opts, get, set, off) end
 	if mod.CloseOptions then mod:CloseOptions(opts, get, set, off) end
+	opts.news = { type = "execute", name = "What's new", order = 1.5, func = function() mod:ToggleNews(true) end,
+		desc = "This version's changes, and the versions before." }
+	opts.resetSliders = { type = "execute", name = "Reset sliders to defaults", order = 2, disabled = off,
+		desc = "Every slider here (and the OpenMap menu's) back to how OpenMap comes.",
+		confirm = true, confirmText = "Put every slider back to its default?",
+		func = function() mod:ResetSliders() end }
 	return opts
+end
+
+-- every slider back to its default (Options' Reset sliders, the menu's Defaults): each through its own
+-- setter, so what it changes follows as if it had been dragged there
+function mod:ResetSliders()
+	for key, opt in pairs(mod:Options()) do
+		local default = mod.defaults[key]
+		if type(opt) == "table" and opt.type == "range" and opt.set and default ~= nil and mod.db[key] ~= default then
+			opt.set({ key }, default)
+		end
+	end
+	if mod.RefreshPanel then mod:RefreshPanel() end
+	if ns.NotifyOptions then ns.NotifyOptions() end
 end

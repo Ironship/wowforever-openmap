@@ -152,6 +152,9 @@ local function ShowRoute(from, to)
 		ns:Print("No flight route from %s to %s.", F.nodes[from][1], F.nodes[to][1])
 		return
 	end
+	-- (the learned-only search lets the ends through unlearned, to keep to learned stops between
+	-- them: a route that starts or ends at one you haven't learned still needs it)
+	knownOnly = knownOnly and Known(from) and Known(to) and true or false
 	local total, measured, cont = 0, true, F.nodes[from][2]
 	local r, g, b = unpack(ROUTE_COLOR)
 	local alpha = knownOnly and 0.95 or 0.5

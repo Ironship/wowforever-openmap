@@ -1,7 +1,8 @@
 # Builds OpenMap's map data from the game's own tables (WoW Forever, build 1.60.1.70245):
 #   OpenMap/Data/Reveal.lua   explored-area pieces per zone art   (WorldMapOverlay, WorldMapOverlayTile)
-#   OpenMap/Data/Places.lua   instance entrances and levels, boat and zeppelin docks and routes
-#                             (Map, LFGDungeons, ContentTuning, TaxiNodes, TaxiPath, TaxiPathNode)
+#   OpenMap/Data/Places.lua   instance entrances, levels and bosses, boat and zeppelin docks and routes
+#                             (Map, LFGDungeons, ContentTuning, DungeonEncounter, TaxiNodes, TaxiPath,
+#                             TaxiPathNode)
 # The tables are fetched as CSV from wago.tools into a cache folder.
 # usage: python -P tools/map-data/build.py <cache dir> [build]
 import csv, math, os, sys, time, urllib.request
@@ -46,32 +47,92 @@ print("reveal:", len(reveal), "zone arts,", sum(len(v) for v in reveal.values())
 
 # ------------------------------------------------------------------ instances
 # Each dungeon's level, from the game's group finder: LFGDungeons points at a ContentTuning
-# row whose level (MinLevelSquish) is the dungeon's. The group finder names some dungeons
-# differently from the Map table, and lists Blackrock Spire / Dire Maul by wing: matched by
-# name, a wing giving its lowest level. Ahn'Qiraj and Naxxramas aren't in it: no level shown.
+# row whose level (MinLevelSquish) is where the dungeon starts. The tables give that one level;
+# the range shown runs SPAN levels past it (to 60 at most), the span WoW Forever's own dungeon
+# list gives its new dungeons (FOREVER, below). Raids: their level alone. The group finder names
+# some dungeons differently from the Map table, and lists Blackrock Spire and Dire Maul by wing:
+# a wing each, at the dungeon's one entrance. Ahn'Qiraj and Naxxramas aren't in it: no level.
+SPAN = 5
 tuning = {r["ID"]: int(r["MinLevelSquish"]) for r in table("ContentTuning")}
 FINDER_NAMES = {"Stormwind Stockades": "Stormwind Stockade", "Zul'Farak": "Zul'Farrak", "Onyxia": "Onyxia's Lair",
-                "Lower Blackrock Spire": "Blackrock Spire", "Upper Blackrock Spire": "Blackrock Spire",
-                "Dire Maul - East": "Dire Maul", "Dire Maul - West": "Dire Maul", "Dire Maul - North": "Dire Maul"}
+                "Hall of Thanes": "The Hall of Thanes"}
+WINGS = {"Blackrock Spire": ["Lower Blackrock Spire", "Upper Blackrock Spire"],
+         "Dire Maul": ["Dire Maul - East", "Dire Maul - West", "Dire Maul - North"],
+         # (Scarlet Monastery's four doors, named as its map's floors are; the finder lists it whole,
+         # so each wing has the dungeon's level)
+         "Scarlet Monastery": ["Scarlet Monastery - Graveyard", "Scarlet Monastery - Library",
+                               "Scarlet Monastery - Armory", "Scarlet Monastery - Cathedral"]}
+WING_OF = {w: name for name, ws in WINGS.items() for w in ws}
 LEVELS = {}
 for r in table("LFGDungeons"):
     lv = tuning.get(r["ContentTuningID"], 0)
     if r["TypeID"] != "0" or lv <= 0: continue
-    name = FINDER_NAMES.get(r["Name_lang"], r["Name_lang"])
-    LEVELS[name] = min(lv, LEVELS.get(name, lv))
-inst = []
+    LEVELS[FINDER_NAMES.get(r["Name_lang"], r["Name_lang"])] = lv
+# WoW Forever's own dungeons: their level ranges as Forever lists them (the WoW Forever team's
+# dungeon list, October 2026). Some aren't in this build's tables yet; none has an entrance in
+# them (the Map table gives no ghost's return point): they show on the map once ENTRANCES has one.
+FOREVER = [("The Hall of Thanes", 13, 18), ("Ruins of Lordaeron", 15, 20), ("Excavation Site: Wetlands", 24, 29),
+           ("City of Dalaran", 28, 33), ("The Drowned City", 35, 40), ("Krol'dok Stronghold", 40, 45),
+           ("Alcaz Prison", 48, 53), ("Blackmaw Hold", 55, 60), ("Shaper's Terrace", 58, 60)]
+# entrances the tables don't have (a wing's own portal, a second way in, Forever's dungeons'):
+# name (as above, a wing's or a dungeon's) -> [where, ...], each either (continent, x, y) in world
+# yards, recorded in game standing in the portal (/openmap entrance <name> prints the line), or
+# ("map", uiMapID, x, y): the spot on that zone's map (0-100, as the game shows coordinates) where
+# players find the portal. They take the place of the table's one entrance for it.
+# Forever's: placed where players find them in game (their whereabouts checked against Leatrix
+# Maps' icons by the maintainer, October 2026); a recording in game replaces a spot.
+ENTRANCES = {
+    "City of Dalaran": [("map", 1416, 8.5, 59.3)],              # Alterac Mountains
+    "The Drowned City": [("map", 1434, 21.3, 27.8)],            # Stranglethorn Vale
+    "Excavation Site: Wetlands": [("map", 1437, 47.8, 56.2)],   # Wetlands
+    "The Hall of Thanes": [("map", 1455, 27.7, 47.9)],          # Ironforge
+    "Ruins of Lordaeron": [("map", 1458, 72.5, 11.4)],          # Undercity
+}
+
+def levels(name, raid):
+    lv = LEVELS.get(name) or LEVELS.get(WING_OF.get(name))   # (a wing the finder doesn't list: its dungeon's)
+    if not lv: return None, None
+    return lv, lv if raid else min(lv + SPAN, 60)
+
+maps = {r["MapName_lang"]: r for r in table("Map") if r["InstanceType"] in ("1", "2")}
+inst, unplaced = [], []
+def entry(mapID, name, raid, lo, hi):
+    return {"id": mapID, "name": name, "raid": raid, "min": lo, "max": hi}
+def place(e, at):
+    for where in ENTRANCES.get(e["name"], [at] if at else []):
+        if where[0] == "map": inst.append(dict(e, cont="map", map=where[1], x=where[2] / 100, y=where[3] / 100))
+        else: inst.append(dict(e, cont=where[0], x=where[1], y=where[2]))
+    return e["name"] in ENTRANCES or at is not None
 for r in table("Map"):
     kind = r["InstanceType"]
     if kind not in ("1", "2") or r["CorpseMapID"] not in ("0", "1"): continue
     x, y = float(r["Corpse_0"]), float(r["Corpse_1"])
     name = r["MapName_lang"]
     if (x == 0 and y == 0) or name.startswith("<") or "Test" in name: continue
-    inst.append({"id": int(r["ID"]), "name": name, "raid": kind == "2", "cont": int(r["CorpseMapID"]), "x": x, "y": y})
-groups = []           # entrances within 250 yards share a pin (Blackrock Mountain ...)
+    raid = kind == "2"
+    for wing in WINGS.get(name, [name]):
+        place(entry(int(r["ID"]), wing, raid, *levels(wing, raid)), (int(r["CorpseMapID"]), x, y))
+for name, lo, hi in FOREVER:
+    if any(i["name"] == name for i in inst): continue      # (the Map table placed it already)
+    r = maps.get(name)
+    e = entry(int(r["ID"]) if r else 0, name, False, lo, hi)
+    if not place(e, None): unplaced.append(e)
+
+# each instance's bosses, in the game's order (DungeonEncounter)
+bosses = {}
+for r in sorted(table("DungeonEncounter"), key=lambda r: (int(r["MapID"]), int(r["OrderIndex"]))):
+    m = int(r["MapID"])
+    if m > 0 and r["Name_lang"] not in bosses.setdefault(m, []): bosses[m].append(r["Name_lang"])
+wanted = {e["id"] for e in inst + unplaced}
+bosses = {m: b for m, b in bosses.items() if m in wanted}
+groups = []           # entrances within 250 yards (a spot on a zone's map: 1% of it) share a pin (Blackrock Mountain ...)
+def near(g, i):
+    if g["cont"] != i["cont"] or g.get("map") != i.get("map"): return False
+    return math.hypot(g["x"] - i["x"], g["y"] - i["y"]) < (0.01 if i.get("map") else 250)
 for i in sorted(inst, key=lambda i: i["id"]):
-    g = next((g for g in groups if g["cont"] == i["cont"] and math.hypot(g["x"] - i["x"], g["y"] - i["y"]) < 250), None)
+    g = next((g for g in groups if near(g, i)), None)
     if g: g["list"].append(i)
-    else: groups.append({"cont": i["cont"], "x": i["x"], "y": i["y"], "list": [i]})
+    else: groups.append({"cont": i["cont"], "map": i.get("map"), "x": i["x"], "y": i["y"], "list": [i]})
 
 # ------------------------------------------------------------------ boats and zeppelins
 nodes = {r["ID"]: r for r in table("TaxiNodes")}
@@ -128,18 +189,30 @@ for p in table("TaxiPath"):
     if len(seg) > 1: segs.append((last, thin(seg)))
     if segs: sailings.append(("zeppelin" if zeppelin else "boat", route, segs))
 
+def item(i):
+    lv = lambda v: "nil" if v is None else str(v)
+    return "{ %d, %s, %s, %s, %s }" % (i["id"], lua_str(i["name"]), "true" if i["raid"] else "false", lv(i["min"]), lv(i["max"]))
+
 with open(os.path.join(DATA, "Places.lua"), "w", encoding="utf-8", newline="\n") as f:
     f.write("-- Places on the map, in world yards per continent (0 Eastern Kingdoms, 1 Kalimdor).\n")
-    f.write("--   instances[i] = { continent, x, y, { { mapID, name, raid, level }, ... } }\n")
-    f.write("--     (the entrance: where a ghost returns; entrances close together share one)\n")
+    f.write("--   instances[i] = { continent, x, y, { { mapID, name, raid, minLevel, maxLevel }, ... } }\n")
+    f.write("--     (the entrance: where a ghost returns; entrances close together share one; a wing\n")
+    f.write("--     of a dungeon is an instance of its own, by the group finder's name for it); or\n")
+    f.write("--     { nil, x, y, { ... }, map = uiMapID }: a spot on that zone's map (0..1), where players find it\n")
+    f.write("--   unplaced[i] = { mapID (0: not in the tables), name, raid, minLevel, maxLevel }: no entrance yet\n")
+    f.write("--   bosses[mapID] = { name, ... } in the game's order\n")
     f.write("--   transports[i] = { \"boat\" | \"zeppelin\", route, continent, x, y, toContinent, toX, toY }\n")
     f.write("--   sailings[i] = { kind, route, { { continent, { x1, y1, x2, y2, ... } }, ... } }: the way it sails,\n")
     f.write("--     dock to dock, in pieces per continent map (between pieces it's crossing the open sea)\n")
     f.write(HEADER + "ns.MapPlaces = {\n\tinstances = {\n")
     for g in groups:
-        items = ", ".join("{ %d, %s, %s, %s }" % (i["id"], lua_str(i["name"]), "true" if i["raid"] else "false",
-            LEVELS.get(i["name"], "nil")) for i in g["list"])
-        f.write("\t\t{ %d, %.1f, %.1f, { %s } },\n" % (g["cont"], g["x"], g["y"], items))
+        items = ", ".join(item(i) for i in g["list"])
+        if g["map"]: f.write("\t\t{ nil, %.3f, %.3f, { %s }, map = %d },\n" % (g["x"], g["y"], items, g["map"]))
+        else: f.write("\t\t{ %d, %.1f, %.1f, { %s } },\n" % (g["cont"], g["x"], g["y"], items))
+    f.write("\t},\n\tunplaced = {\n")
+    for i in unplaced: f.write("\t\t%s,\n" % item(i))
+    f.write("\t},\n\tbosses = {\n")
+    for m in sorted(bosses): f.write("\t\t[%d] = { %s },\n" % (m, ", ".join(lua_str(b) for b in bosses[m])))
     f.write("\t},\n\ttransports = {\n")
     for d in docks:
         to = d["to"]
@@ -151,4 +224,5 @@ with open(os.path.join(DATA, "Places.lua"), "w", encoding="utf-8", newline="\n")
             "{ %d, { %s } }" % (c, ", ".join("%.0f, %.0f" % q for q in pts_)) for c, pts_ in segs)))
     f.write("\t},\n}\n")
 print("sailings:", len(sailings), [(k, r, len(sg)) for k, r, sg in sailings])
-print("places:", len(groups), "instance entrances (", len(inst), "instances ),", len(docks), "docks")
+print("places:", len(groups), "instance entrances (", len(inst), "instances ),", len(unplaced), "without an entrance,",
+      len(bosses), "boss lists,", len(docks), "docks")

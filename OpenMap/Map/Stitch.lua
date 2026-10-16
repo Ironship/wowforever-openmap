@@ -67,6 +67,7 @@ local CITY_FADE = { 0.2, 0.4 }  -- (cities: share of the zoom where they fill th
                                 --  big enough for its labels to read)
 local CITY_FADE_OF = {          -- ... sooner where the zone paints it as no more than a blur
 	[1454] = { 0.08, 0.25 },    --  (Orgrimmar, on Durotar's: a long fade, over its zone's painting of it)
+	[1456] = { 0.08, 0.25 },    --  (Thunder Bluff, on Mulgore's: in before its zone's banner for it goes)
 }
 local BANNER_OUT = { 0.25, 0.4 } -- ... and where the zone's banner for a city that keeps its own (ns.MapCityTitles)
                                 --  gives way to it: once that reads (tools/map-preview/render.py mirrors it)
@@ -147,7 +148,12 @@ end
 -- masked textures in view) until the view is past the tiles' own pixels, then handing over to them
 -- (FADE: screen px per tile px). `live`: the live layers' share now (0: the tiles alone, 1: live alone).
 -- (One table: the file is near Lua's limit of 200 locals)
-local Baked = { FADE = { 1.2, 1.6 }, tiles = {}, use = false, live = 1, path = TEX .. "MapZones\\" }
+-- The handover is the same art over the same art: the live layers come on (at full) under the tiles a
+-- little before it (WARM, of FADE's start: their files load meanwhile) and the tiles fade off them; and
+-- while their files are still coming in (busy) the tiles stay (holding), or the zones' plain parchment,
+-- the first of their files to arrive, showed for a moment between the two
+local Baked = { FADE = { 1.2, 1.6 }, WARM = 0.85, tiles = {}, use = false, live = 1, warm = false, busy = false, holding = false,
+	path = TEX .. "MapZones\\" }
 
 -- The live zone layers' regions (tilesRoot, overlayRoot, coreRoot: thousands of textures and their
 -- masks) are anchored only while they can show. Every region is placed on root, and each frame of a
@@ -172,15 +178,19 @@ local function ApplyDetail()
 		Fade(blurRoot, d * softNow)
 	end
 	local live = Baked.use and Baked.live or 1
-	if d == appliedDetail and live == Baked.applied then return end
-	appliedDetail, Baked.applied = d, live
-	local dl = d * live
-	local on, seen = dl > 0.001, d > 0.001
+	local warm = Baked.use and Baked.warm or false
+	local key = live + (warm and 2 or 0) + (Baked.holding and 4 or 0)
+	if d == appliedDetail and key == Baked.applied then return end
+	appliedDetail, Baked.applied = d, key
+	-- (the live layers at full under the tiles, from just before the handover: Baked, above)
+	local on, seen = d > 0.001 and (live > 0 or warm), d > 0.001
+	local dl = on and d or 0
 	if on ~= detailLive or seen ~= Live.seen then   -- (zones' files load once their detail first shows; the live
 		detailLive, Live.seen = on, seen             --  layers' regions are anchored while they show, ShowZone)
 		for mapID in pairs(zoneTex) do
 			if inView[mapID] == true then ShowZone(mapID) end
 		end
+		Baked.holding = on and Baked.use and Baked.busy or false
 	end
 	tilesRoot:SetShown(on)
 	overlayRoot:SetShown(on)
@@ -189,12 +199,13 @@ local function ApplyDetail()
 	overlayRoot:SetAlpha(dl)
 	-- the interiors (a second copy of every zone's overlays) only with the zones proper:
 	-- under the faint hint from further out they'd hardly show, over both continents at once
-	Fade(coreRoot, math.max(0, (d - DETAIL_HINT[3]) / (1 - DETAIL_HINT[3])) * live)
+	Fade(coreRoot, on and math.max(0, (d - DETAIL_HINT[3]) / (1 - DETAIL_HINT[3])) or 0)
 	if blurRoot then Fade(blurRoot, d * softNow) end
 	if Baked.frame then
 		-- (the live layers stack: a zone's base art and its overlays, each at d, cover 1 - (1 - d)^2 of
 		-- what's under them; the tiles are all of them in one, so they're drawn that strong)
-		Fade(Baked.frame, math.floor((1 - (1 - d) ^ 2) * (1 - live) * 100 + 0.5) / 100)
+		local gone = Baked.holding and 0 or live
+		Fade(Baked.frame, math.floor((1 - (1 - d) ^ 2) * (1 - gone) * 100 + 0.5) / 100)
 		Baked.Cull()
 	end
 end
@@ -545,18 +556,29 @@ end
 
 -- dungeon name -> its uiMapID (first map of that name), built on first use
 local instanceMaps
+-- an instance's map, by its name: a dungeon map before a micro map of the same name, and never an
+-- entrance cave's (Data/Caves.lua: Wailing Caverns' cave shares the dungeon's name); names matched
+-- without "The", case or punctuation (the game's "Deadmines" is its map's "The Deadmines")
 function S.InstanceMap(name)
+	if type(name) ~= "string" or name == "" then return end
+	local function NameKey(n) return (n:lower():gsub("^the ", ""):gsub("[^%w]", "")) end
 	if not instanceMaps then
 		instanceMaps = {}
-		for id = 1, 4000 do
+		local caves = ns.MapCaves or {}
+		for id = 1, 5000 do
 			local info = C_Map.GetMapInfo(id)
 			local kind = info and info.mapType
-			if (kind == Enum.UIMapType.Dungeon or kind == Enum.UIMapType.Micro) and info.name and not instanceMaps[info.name] then
-				instanceMaps[info.name] = id
+			if (kind == Enum.UIMapType.Dungeon or kind == Enum.UIMapType.Micro) and info.name and not caves[id] then
+				local key = NameKey(info.name)
+				local had = instanceMaps[key]
+				if not had or (kind == Enum.UIMapType.Dungeon and had.kind ~= Enum.UIMapType.Dungeon) then
+					instanceMaps[key] = { id = id, kind = kind }
+				end
 			end
 		end
 	end
-	return instanceMaps[name] or instanceMaps[(name:gsub("%s*%b()", ""))]
+	local e = instanceMaps[NameKey(name)] or instanceMaps[NameKey((name:gsub("%s*%b()", "")))]
+	return e and e.id
 end
 
 --------------------------------------------------------------------------------
@@ -701,6 +723,30 @@ function S.AddLine(set, u1, v1, u2, v2, thickness, r, g, b, a, texture)
 	set.anchors[#set.anchors + 1] = a1
 	set.anchors[#set.anchors + 1] = a2
 	return line
+end
+
+-- a path through world points (normalized: { u1, v1, u2, v2, ... }), `thickness` px on screen: a
+-- line between each two, sharing their anchors (a drawing's stroke: Sketch.lua); `sub`: its draw
+-- sublevel, so one path can lie over another
+function S.AddPath(set, pts, thickness, r, g, b, a, sub)
+	local prev
+	for i = 1, #pts - 1, 2 do
+		local anchor = Anchor(pts[i] * W, pts[i + 1] * H)
+		set.anchors[#set.anchors + 1] = anchor
+		if prev then
+			local line = tremove(set.linePool) or set.frame:CreateLine(nil, "ARTWORK")
+			line:SetDrawLayer("ARTWORK", sub or 0)
+			line:ClearAllPoints()
+			line:SetStartPoint("TOPLEFT", prev)
+			line:SetEndPoint("TOPLEFT", anchor)
+			line:SetThickness(thickness or 3)
+			line:SetColorTexture(1, 1, 1, 1)
+			line:SetVertexColor(r or 1, g or 1, b or 1, a or 1)
+			line:Show()
+			set.lines[#set.lines + 1] = line
+		end
+		prev = anchor
+	end
 end
 
 -- a plain dot (a texture, not a button: routes have hundreds) at a world point (normalized),
@@ -868,51 +914,32 @@ end
 -- Places (ns.MapPlaces, from the game's tables): instance entrances, boats, zeppelins
 --------------------------------------------------------------------------------
 
--- Blizzard's own icons (atlases and textures in the client)
+-- Blizzard's own icons (atlases and textures in the client); dungeons' are Dungeons.lua's
 local LOOK = {
-	dungeon  = { atlas = "dungeon", texture = "Interface\\Minimap\\ObjectIcons", size = 26 },
-	raid     = { atlas = "raid", texture = "Interface\\Minimap\\ObjectIcons", size = 26 },
 	boat     = { atlas = "Ships_CargoShip-Map", texture = "Interface\\Minimap\\ObjectIcons", size = 30 },
 	-- Blizzard's Horde airship (the battleground maps' flying-vehicle icon); the old seat
 	-- indicator outline where a client lacks it
 	zeppelin = { atlas = "vehicle-air-horde", texture = "Interface\\Vehicles\\SeatIndicator\\Vehicle-HordeZeppelin", size = 30 },
 }
 
--- an instance's name in the player's language (the game's own), else the data's English
+-- an instance's name in the player's language (the game's own), else the data's English. A wing
+-- (the group finder's name for part of a dungeon, "Dire Maul - East") keeps its own name in English,
+-- and in another language is the dungeon's name with the wing's after it
 function S.InstanceName(inst)
-	local name = GetRealZoneText and ns.Safe.Call(GetRealZoneText, inst[1])
-	return (name and name ~= "") and name or inst[2]
+	local name = GetRealZoneText and inst[1] > 0 and ns.Safe.Call(GetRealZoneText, inst[1])   -- (0: not in the tables)
+	if not name or name == "" then return inst[2] end
+	if inst.wing == nil then
+		local en = GetLocale and GetLocale():sub(1, 2) == "en"
+		inst.wing = false
+		for _, g in ipairs((ns.MapPlaces or {}).instances or {}) do
+			for _, other in ipairs(g[4]) do
+				if other ~= inst and other[1] == inst[1] and other[2] ~= inst[2] then inst.wing = en and inst[2] or (name .. " (" .. inst[2] .. ")") end
+			end
+		end
+	end
+	return inst.wing or name
 end
 local L = ns.L
-
-local function InstanceEnter(pin)
-	GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
-	for _, inst in ipairs(pin.instances) do
-		local raid, level = inst[3], inst[4]
-		GameTooltip:AddDoubleLine(S.InstanceName(inst), (level and ((LEVEL or "Level") .. " " .. level) or "") .. (raid and "  " .. L["Raid"] or ""),
-			1, 0.82, 0, 0.8, 0.8, 0.8)
-	end
-	if S.CaveAt and S.CaveAt(pin.cont, pin.x, pin.y) then
-		GameTooltip:AddLine(L["Click: go down to the entrance"], 0.6, 0.6, 0.6)
-	elseif S.InstanceMap(S.InstanceName(pin.instances[1])) or S.InstanceMap(pin.instances[1][2]) then
-		GameTooltip:AddLine(L["Click: open the dungeon map"], 0.6, 0.6, 0.6)
-	end
-	GameTooltip:Show()
-end
-
--- an entrance: down into its cave / entrance area when there is one (Close.lua), else
--- Blizzard's dungeon map when the client has one, else just close in
-local function InstanceClick(pin)
-	local id, u0, v0, u1, v1
-	if S.CaveAt then id, u0, v0, u1, v1 = S.CaveAt(pin.cont, pin.x, pin.y) end
-	if id and S.GlideToRect then
-		S.GlideToRect(u0, v0, u1, v1, 1.1)
-		return
-	end
-	local mapID = S.InstanceMap(S.InstanceName(pin.instances[1])) or S.InstanceMap(pin.instances[1][2])
-	if mapID and S.OpenMap then S.OpenMap(mapID)
-	elseif S.GlideToWorld then S.GlideToWorld(pin.u, pin.v, 30) end
-end
 
 local function DockEnter(pin)
 	GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
@@ -922,7 +949,7 @@ local function DockEnter(pin)
 		local chain = S.ChainAt(pin.to[1], pin.to[2])
 		local info = C_Map.GetMapInfo(chain[#chain])
 		if info and info.name then GameTooltip:AddLine(L["To"] .. " " .. info.name, 1, 1, 1) end
-		GameTooltip:AddLine(L["Click: go to the other end"], 0.6, 0.6, 0.6)
+		GameTooltip:AddLine(L["Click to go to the other end"], 0.6, 0.6, 0.6)
 	end
 	GameTooltip:Show()
 end
@@ -934,19 +961,8 @@ end
 local function BuildPins()
 	local P = ns.MapPlaces or {}
 	local dungeons, travel = S.PinSet("dungeons", 1.5), S.PinSet("travel", 2.5)
-	for _, g in ipairs(P.instances or {}) do
-		local u, v = S.FromYards(g[1], g[2], g[3])
-		if u then
-			local raid = true
-			for _, inst in ipairs(g[4]) do raid = raid and inst[3] end
-			local pin = S.AddPin(dungeons, u, v, raid and LOOK.raid or LOOK.dungeon)
-			pin.instances = g[4]
-			pin.cont, pin.x, pin.y = g[1], g[2], g[3]
-			pin:SetScript("OnEnter", InstanceEnter)
-			pin:SetScript("OnLeave", GameTooltip_Hide)
-			pin.OnClick = InstanceClick
-			pins[#pins + 1] = pin
-		end
+	if S.BuildDungeonPins then
+		for _, pin in ipairs(S.BuildDungeonPins(dungeons)) do pins[#pins + 1] = pin end   -- (Dungeons.lua)
 	end
 	local horde = UnitFactionGroup("player") == "Horde"
 	for _, d in ipairs(P.transports or {}) do
@@ -1184,10 +1200,11 @@ function S.Build(parent, artLevel, range, iconLevel)
 			tex:SetTexture(TEX .. "MapBanner\\" .. c.mapID, nil, nil, "LINEAR")
 			Record(tex, p.left + b[2] * p.sx, p.top + b[3] * p.sy, b[4] * p.sx, b[5] * p.sy)
 			f:Hide()
-			c.banner = f
+			c.banner, c.bannerTex = f, tex
 		end
 	end
 
+	cities.Build()
 	Baked.Build()
 	BuildPins()
 	return true
@@ -1523,6 +1540,7 @@ function S.SetZoom(zoom, scale)
 		local r = root:GetEffectiveScale() * (ph or 768) / 768 / ns.MapZoneArt.px
 		local t = math.max(0, math.min(1, (r - Baked.FADE[1]) / (Baked.FADE[2] - Baked.FADE[1])))
 		Baked.live = math.floor(t * t * (3 - 2 * t) * 50 + 0.5) / 50
+		Baked.warm = r >= Baked.FADE[1] * Baked.WARM
 	end
 	ApplyDetail()
 	Step("zone detail")
@@ -1530,14 +1548,10 @@ function S.SetZoom(zoom, scale)
 		local fade = CITY_FADE_OF[c.mapID] or CITY_FADE
 		local a = Smooth(fade[1] * c[2], fade[2] * c[2])
 		if c.alpha ~= a then c.alpha = a c[1]:SetAlpha(a) end   -- (shown / hidden by S.Cull)
-		-- the zone's banner for it: the zone's art is drawn without it, so this is the banner,
-		-- with the zone's detail; the city's title once you're in it, unless the city's own map
-		-- keeps its own banner (ns.MapCityTitles): then it gives way to that (BANNER_OUT)
-		if c.banner then
-			local out = ns.MapCityTitles and ns.MapCityTitles[c.mapID] and Smooth(BANNER_OUT[1] * c[2], BANNER_OUT[2] * c[2]) or 0
-			Fade(c.banner, math.floor(detailNow * (1 - out) * 50 + 0.5) / 50)
-		end
 	end
+	-- (the zone's banner for each city: the zone's art is drawn without it, so this is the banner, with
+	-- the zone's detail; the city's title once you're in it, unless the city's own map keeps its own)
+	cities.Banners()
 	Step("cities")
 	local m = math.floor(Smooth(MUTE_FADE) * 20) / 20
 	local sm = math.floor(Smooth(SEA_FADE) * 20) / 20
@@ -1786,21 +1800,33 @@ loader:SetScript("OnUpdate", function(self)
 			tex:SetAlpha(t * t * (3 - 2 * t))
 		end
 	end
-	if loadAt == 1 and #loadQueue == 0 and fadingN == 0 then self:Hide() end
+	if loadAt == 1 and #loadQueue == 0 and fadingN == 0 then
+		self:Hide()
+		Baked.busy = false
+		if Baked.holding then                   -- (all in: the baked tiles can go)
+			Baked.holding = false
+			ApplyDetail()
+		end
+	end
 end)
 
 --------------------------------------------------------------------------------
--- Unexplored land, darkened ("dim"): a shade over the zones' art and the close-up minimap,
--- through each zone's land without the sea its art paints (MapZoneLand, so the sea is left
--- alone): all of a zone you haven't found any of, from every zoom; in a zone you've been to,
--- each unexplored piece, cut to its own shape (its tiles' files as masks). Built the first time
--- it's wanted, a zone's pieces when it's first in view; hidden with the zone off the view.
+-- Unexplored land, darkened ("dim"). A zone you haven't found any of: a shade over its art and the
+-- close-up minimap, through its land without the sea its art paints (MapZoneLand, so the sea is left
+-- alone), from every zoom. A zone you've been to: each piece's art again over the zone's (the baked
+-- tiles' or the live layers'), the unexplored pieces darkened and the explored over them as they are.
+-- (Blizzard's pieces are opaque rectangles, over half of a zone's art under two or more: a shade per
+-- piece stacked darker where they overlap and showed every piece's tiles as lines; copies of the art
+-- over the same art don't stack, and their edges are the pieces' own.) Built the first time it's
+-- wanted, a zone's pieces when it's first in view; hidden with the zone off the view.
 --------------------------------------------------------------------------------
 
 -- (one table: the file is near Lua's limit of 200 locals)
--- zones: mapID -> { frame, land, p, all = texture, rim = texture, pieces = { piece -> { textures } } }, or false
--- REACH: world units round a zone its border share covers (render.py's BORDER_REACH)
-local Shade = { zones = {}, on = false, REACH = 12 }
+-- zones: mapID -> { frame, land, p, all = texture, rim = texture, dim = frame, pieces = { piece -> { copies } } },
+-- or false. REACH: world units round a zone its border share covers (render.py's BORDER_REACH).
+-- DIM: an unexplored piece's colour, { r, g, b (multipliers), desaturation }: near the shade's (UNDISCOVERED
+-- at its alpha over the art), as a texture can only multiply (render.py's DIM)
+local Shade = { zones = {}, on = false, REACH = 12, DIM = { 0.38, 0.39, 0.43, 0.25 } }
 
 function Shade.Texture(z, x, y, w, h)
 	local tex = z.frame:CreateTexture(nil, "ARTWORK")
@@ -1843,36 +1869,83 @@ function Shade.Zone(mapID)
 	return z
 end
 
--- a zone's unexplored pieces, each through its own tiles' files (placed at the files' own size,
--- so nothing needs cropping) and the zone's land. (Explored pieces never go back: none for them)
+-- a zone you've been to: every piece's art again, as the overlays are drawn (the zone's frame, its
+-- banner hole, its colour-match copy through the border band), on a layer over the zones' art and the
+-- baked tiles and under the blur's copies, the cities and the minimap. Shade.Colour darkens them
 function Shade.Pieces(mapID, z)
 	z.pieces = {}
 	local p = z.p
+	if not Shade.root then
+		Shade.root = CreateFrame("Frame", nil, root)
+		Shade.root:SetAllPoints(root)
+		Shade.root:SetFrameLevel(blurRoot:GetFrameLevel())   -- (blurRoot holds no art of its own: its copies are a level up)
+	end
+	local f = CreateFrame("Frame", nil, Shade.root)
+	f:SetAllPoints(root)
+	z.dim = f
+	local edge = ZoneMask(f, p, EDGE) or Feather(f, p, FEATHER_THIN)
+	local band, hole = ZoneMask(f, p, BAND), BannerHole(f, p)
+	z.dimLand = ZoneMask(f, p, ZONELAND)          -- (a darkened piece: its land only, the sea it paints left alone)
 	local tw, th = p.layer.tileWidth, p.layer.tileHeight
 	ForEachPiece(mapID, function(files, x, y, w, h, _, piece)
-		if not piece.unexplored then return end
 		local list = {}
 		local cols, rows = math.ceil(w / tw), math.ceil(h / th)
 		for j = 1, rows do
 			local ph = (j < rows) and th or (h - (rows - 1) * th)
 			for k = 1, cols do
-				local f = files[(j - 1) * cols + k]
-				local file = tonumber(f) or f
+				local file = files[(j - 1) * cols + k]
+				file = tonumber(file) or file
 				local pw = (k < cols) and tw or (w - (cols - 1) * tw)
 				if file and pw > 0 and ph > 0 then
 					local fw, fh = (k < cols) and tw or Pow2(pw), (j < rows) and th or Pow2(ph)
 					local tx, ty = p.left + (x + (k - 1) * tw) * p.sx, p.top + (y + (j - 1) * th) * p.sy
-					local shape = z.frame:CreateMaskTexture()
-					shape:SetTexture(file, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-					Record(shape, tx, ty, fw * p.sx, fh * p.sy)
-					local tex = Shade.Texture(z, tx, ty, pw * p.sx, ph * p.sy)
-					tex:AddMaskTexture(shape)
-					list[#list + 1] = tex
+					for copy = 1, band and 2 or 1 do
+						local tex = f:CreateTexture(nil, "ARTWORK")
+						tex:SetTexture(file, nil, nil, "TRILINEAR")
+						tex:SetTexCoord(0, pw / fw, 0, ph / fh)
+						Record(tex, tx, ty, pw * p.sx, ph * p.sy)
+						tex:AddMaskTexture(edge)
+						if hole then tex:AddMaskTexture(hole) end
+						if copy == 2 then tex:AddMaskTexture(band) end
+						list[#list + 1] = { tex, twin = copy == 2 }
+					end
 				end
 			end
 		end
 		z.pieces[piece] = list
 	end)
+end
+
+-- the copies coloured for whether their piece is explored, at the colour settings now: the explored
+-- as the overlays are, over the unexplored, which are darkened (DIM) on the zone's land alone (the sea
+-- it paints left as it is) and without their colour-match copy (a texture takes three masks)
+function Shade.Colour(mapID, z)
+	local strength, desat = gradeNow[1], gradeNow[2]
+	-- (only when the settings or the pieces explored have changed: this runs with each cull)
+	local un = 0
+	for piece in pairs(z.pieces) do if piece.unexplored then un = un + 1 end end
+	local done = strength .. ":" .. desat .. ":" .. un
+	if z.coloured == done then return end
+	z.coloured = done
+	local m = ns.MapGrade and ns.MapGrade[mapID]
+	local D = Shade.DIM
+	for piece, list in pairs(z.pieces) do
+		local dark = piece.unexplored and true or false
+		for _, e in ipairs(list) do
+			local r, g, b = 1, 1, 1
+			if e.twin and m then r, g, b = 1 + (m[1] - 1) * strength, 1 + (m[2] - 1) * strength, 1 + (m[3] - 1) * strength end
+			if dark then r, g, b = D[1], D[2], D[3] end
+			local tex = e[1]
+			if z.dimLand and not e.twin and e.landed ~= dark then
+				e.landed = dark
+				if dark then tex:AddMaskTexture(z.dimLand) else tex:RemoveMaskTexture(z.dimLand) end
+			end
+			tex:SetVertexColor(r, g, b, 1)
+			tex:SetDesaturation(dark and math.max(desat, D[4]) or desat)
+			tex:SetDrawLayer("ARTWORK", (dark and 0 or 2) + (e.twin and 1 or 0))
+			tex:SetShown(not (e.twin and (dark or strength <= 0)))
+		end
+	end
 end
 
 -- how much of a zone is unexplored: "all", "some", or nil (none, or no pieces)
@@ -1896,25 +1969,28 @@ function Shade.Near(mapID)
 	return r + du > box[1] and l - du < box[3] and b + dv > box[2] and t - dv < box[4]
 end
 
+-- a zone not found at all: its shade (and its share of the border land); one you've been to: its
+-- pieces' copies; near the view only
 function Shade.Show(mapID)
 	local z = Shade.zones[mapID]
 	local state = Shade.on and Shade.Unexplored(mapID)
 	if not state then
-		if z then z.frame:Hide() end
+		if z then
+			z.frame:Hide()
+			if z.dim then z.dim:Hide() end
+		end
 		return
 	end
 	if z == nil then z = Shade.Zone(mapID) end
 	if not z then return end
 	local here = Shade.Near(mapID)
 	z.near = here
-	z.frame:SetShown(here)
-	if not here then return end
-	z.all:SetShown(state == "all")
-	z.rim:SetShown(state == "all")
-	if state == "some" and not z.pieces then Shade.Pieces(mapID, z) end
-	for piece, list in pairs(z.pieces or NONE) do
-		local on = state == "some" and piece.unexplored
-		for _, tex in ipairs(list) do tex:SetShown(on) end
+	z.frame:SetShown(here and state == "all")
+	local some = here and state == "some"
+	if some and not z.pieces then Shade.Pieces(mapID, z) end
+	if z.dim then
+		z.dim:SetShown(some)
+		if some then Shade.Colour(mapID, z) end
 	end
 end
 
@@ -1936,6 +2012,7 @@ ShowZone = function(mapID)
 			tex.omQueued = true
 			loadQueue[#loadQueue + 1] = tex
 			loader:Show()
+			Baked.busy = true
 		end
 		local show = near and drawn and not (un and hide) and (not e.twin or strength > 0)
 		if e.shown ~= show then
@@ -1993,6 +2070,11 @@ function S.ApplyGrade(strength, desat, unexplored)
 		tex:SetDesaturation(desat)
 	end
 	for mapID in pairs(zoneTex) do ShowZone(mapID) end
+	if root then
+		for _, c in ipairs(cities) do c.dark = nil end   -- (the grade above set their colours afresh)
+		cities.Dim()
+		cities.Banners()
+	end
 	-- the baked art only at the settings it was baked at (unexplored areas hidden: live, piece by piece)
 	local art = ns.MapZoneArt
 	Baked.use = (art and Baked.frame and strength == art.colorMatch and math.abs(desat - art.desaturate) < 0.001
@@ -2109,6 +2191,79 @@ function Baked.Cull()
 	end
 end
 
+-- Whether each city has been found: its own map has no pieces to explore, so the pieces of the zone
+-- maps under its centre (Orgrimmar's: Durotar's) say; with none there, it's found. A city's textures
+-- share one stand-in piece, so hidden unexplored areas hide an unfound city as they do a piece, and the
+-- zone's banner for it with it. (On `cities`: the file is near Lua's limit of 200 locals)
+cities.Build = function()
+	for _, c in ipairs(cities) do
+		local l, r, t, b = S.Rect(c.mapID)
+		local cx, cy = (l + r) / 2 * W, (t + b) / 2 * H
+		c.covers, c.piece = {}, { key = "city" }
+		for zoneID, list in pairs(pieces) do
+			local p = Place(zoneID)
+			if p then
+				local x, y = (cx - p.left) / p.sx, (cy - p.top) / p.sy
+				for key, piece in pairs(list) do
+					local w, h, px, py = strsplit(":", key)
+					w, h, px, py = tonumber(w), tonumber(h), tonumber(px), tonumber(py)
+					if w and x >= px and x <= px + w and y >= py and y <= py + h then c.covers[#c.covers + 1] = piece end
+				end
+			end
+		end
+		for _, e in ipairs(zoneTex[c.mapID] or NONE) do e[3] = c.piece end
+	end
+	cities.Refresh()
+end
+
+cities.Refresh = function()
+	for _, c in ipairs(cities) do
+		local found = #c.covers == 0
+		for _, piece in ipairs(c.covers) do
+			if not piece.unexplored then found = true break end
+		end
+		c.piece.unexplored = not found
+	end
+end
+
+-- the zones' banners for their cities: with the zone detail, giving way to the city's own (BANNER_OUT),
+-- and gone with an unfound city while unexplored areas are hidden
+cities.Banners = function()
+	for _, c in ipairs(cities) do
+		if c.banner then
+			local out = ns.MapCityTitles and ns.MapCityTitles[c.mapID] and Smooth(BANNER_OUT[1] * c[2], BANNER_OUT[2] * c[2]) or 0
+			local lost = gradeNow[3] == "hide" and c.piece and c.piece.unexplored
+			Fade(c.banner, lost and 0 or math.floor(detailNow * (1 - out) * 50 + 0.5) / 50)
+		end
+	end
+end
+
+-- an unfound city while unexplored areas are darkened: its own map and the zone's banner for it
+-- darkened as the zone's unexplored art is (Shade.DIM). Both are drawn over the darkening (the banner
+-- over everything, the city over a visited zone's darkened pieces), so it doesn't reach them
+cities.Dim = function()
+	local D = Shade.DIM
+	local strength, desat = gradeNow[1], gradeNow[2]
+	for _, c in ipairs(cities) do
+		local dark = Shade.on and c.piece and c.piece.unexplored and true or false
+		if c.dark ~= dark then
+			c.dark = dark
+			local m = ns.MapGrade and ns.MapGrade[c.mapID]
+			for _, e in ipairs(zoneTex[c.mapID] or NONE) do
+				local r, g, b = 1, 1, 1
+				if e.twin and m then r, g, b = 1 + (m[1] - 1) * strength, 1 + (m[2] - 1) * strength, 1 + (m[3] - 1) * strength end
+				if dark then r, g, b = r * D[1], g * D[2], b * D[3] end
+				e[1]:SetVertexColor(r, g, b, 1)
+				e[1]:SetDesaturation(dark and math.max(desat, D[4]) or desat)
+			end
+			if c.bannerTex then
+				c.bannerTex:SetVertexColor(dark and D[1] or 1, dark and D[2] or 1, dark and D[3] or 1, 1)
+				c.bannerTex:SetDesaturation(dark and D[4] or 0)
+			end
+		end
+	end
+end
+
 -- the player explored somewhere: its pieces stop being unexplored (MAP_EXPLORATION_UPDATED)
 function S.RefreshExplored()
 	local changed = false
@@ -2122,5 +2277,6 @@ function S.RefreshExplored()
 			if piece.unexplored ~= un then piece.unexplored, changed = un, true end
 		end
 	end
+	if changed then cities.Refresh() end
 	if changed and lastGrade then S.ApplyGrade(unpack(lastGrade)) end
 end

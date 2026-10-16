@@ -20,7 +20,7 @@ WORLD = 947
 # Stitch.lua's constants
 CONT_FADE, DETAIL_FADE, CITY_FADE, MUTE_FADE = (1.3, 2.2), (3, 4.5), (0.2, 0.4), (4, 7)
 DETAIL_HINT = (1.8, 3, 0.3)     # (the zones' hint from further out: Stitch.lua's)
-CITY_FADE_OF = {1454: (0.08, 0.25)}   # (cities that come in sooner: Stitch.lua's)
+CITY_FADE_OF = {1454: (0.08, 0.25), 1456: (0.08, 0.25)}   # (cities that come in sooner: Stitch.lua's)
 BANNER_OUT = (0.25, 0.4)        # (a zone's banner for a city that keeps its own goes: Stitch.lua's)
 BORDER_OUT, BORDER_SCALE = (1.15, 1.6), 0.55   # (the border round the view: Window.lua's)
 SEA = (0.50, 0.49, 0.41)        # the sea's colour where no map paints one (MapSeaField covers the rest)
@@ -317,6 +317,7 @@ USE_BASE = os.environ.get("OPENMAP_BASE", "1") == "1"
 # has explored, so a preview picks it: OPENMAP_UNEXPLORED="Westfall=all;Duskwood=half"
 # (all: none of it found; half: every other overlay piece unexplored)
 UNDISCOVERED = (0.05, 0.06, 0.08, 0.62)
+DIM = (0.38, 0.39, 0.43, 0.25)  # an unexplored piece's colour in a zone you've been to (Stitch.lua's Shade.DIM): r, g, b, desaturation
 UNEXPLORED_SIM = dict(p.split("=", 1) for p in os.environ.get("OPENMAP_UNEXPLORED", "").split(";") if "=" in p)
 
 def smooth(z, rng):
@@ -477,7 +478,9 @@ def render(cu, cv, zoom, path):
             aa = (h[..., 3] * band_ * a)[..., None]
             out[:] = out * (1 - aa) + h[..., :3] * aa
 
-    zf = FADE_ZOOM or zoom                               # (tools bake at a fixed fade)
+    # (tools bake at a fixed fade) the layers fade by the view's area, not its fit to the world
+    # (WorldMap.lua's DetailK: a view the world's shape is the same, a tall or very wide one later)
+    zf = FADE_ZOOM or zoom * min(OW / W, OH / H) / math.sqrt(OW * OH / (W * H))
     m_ = math.floor(smooth(zf, MUTE_FADE) * 20) / 20
     sm_ = math.floor(smooth(zf, SEA_FADE) * 20) / 20 if USE_SEA else 0
     if USE_SEA and not ZONES_ONLY: sea_field()
@@ -538,6 +541,25 @@ def render(cu, cv, zoom, path):
     if USE_CORE and not USE_BAKED:
         for m in zones:                                   # every zone's interior again, over its neighbours' halos
             if has_over[m["id"]]: place(m, over, edge(m) * core(m), alpha=d)
+    if UNEXPLORED_SIM and not ZONES_ONLY:                 # a zone you've been to: each piece's art again, the unexplored
+        for m in zones:                                   # darkened, the explored over them (Stitch.lua's Shade.Pieces)
+            if UNEXPLORED_SIM.get(m["name"]) != "half" or not has_over[m["id"]]: continue
+            keys = sorted(key for key, _ in reveal.get(m["art"], []))
+            unexplored = set(keys[::2])
+            hole = mask("MapBannerHole/%d" % m["id"])
+            g, bd = grade.get(m["id"]), band(m)
+            land = mask("MapZoneLand/%d" % m["id"])
+            for dark in (True, False):
+                img = overlay_canvas(m["art"], {k for k in keys if (k in unexplored) == dark})
+                if hole is not None:
+                    img = img.copy()
+                    img[..., 3] *= hole
+                if dark:                                  # (on its land alone, without its colour-match copy)
+                    place(m, img, edge(m) * (land if land is not None else 1), tint=DIM[:3], dsat=max(ZONE_DESAT, DIM[3]))
+                    continue
+                place(m, img, edge(m), dsat=ZONE_DESAT)
+                if g and bd is not None:
+                    place(m, img, edge(m) * bd, tint=g, dsat=ZONE_DESAT)
     for m in zones:                                       # cities
         if not has_over[m["id"]]:
             f_ = 1 / (m["rect"][1] - m["rect"][0])
@@ -561,9 +583,7 @@ def render(cu, cv, zoom, path):
                     l, r, t, b = m["rect"]
                     out_rect = (l - BORDER_REACH / W_, r + BORDER_REACH / W_, t - BORDER_REACH / H_, b + BORDER_REACH / H_)
                     place({"id": m["id"], "rect": out_rect}, solid, rim, alpha=UNDISCOVERED[3])
-            else:                                         # each piece's own shade, as the game stacks them
-                for key in sorted(key for key, _ in reveal.get(m["art"], []))[::2]:
-                    place(m, solid, land * overlay_canvas(m["art"], {key})[..., 3], alpha=UNDISCOVERED[3])
+            # ("half": a zone you've been to, its pieces' copies under the cities, above)
     ba = 1 - smooth(zf, BORDER_OUT)                       # the parchment border round the view (Window.lua's)
     if ba > 0.003 and not ZONES_ONLY:
         c = int(round(192 * BORDER_SCALE * OH / 1024))
@@ -863,37 +883,29 @@ def shore(m):
 # stays sea-coloured (the hatched band up to the coast)
 ZONE_LAND_SEED, ZONE_LAND_GROW, ZONE_LAND_MIN = 0.42, 0.47, 4000   # saturation; saturation; art px
 ZONE_LAND_ISLAND = 3000         # art px: land patches smaller than this, apart from the rest, are left out
+ZONE_LAND_SOFT = 5.0            # art px: the land mask's edge falloff (the darkening's, Stitch.lua's Shade)
 def zone_land(m):
     k = ("zland", m["id"])
     if k not in _cache:
         from scipy import ndimage
-        def sat(img, s):
-            bb = np.dstack([ndimage.gaussian_filter(img[..., c], s) for c in range(3)])
-            mx, mn = bb.max(2), bb.min(2)
-            return (mx - mn) / np.maximum(mx, 1e-3)
-        b, o = base(m)[..., :3], over(m)
-        drawn = b * (1 - o[..., 3:4]) + o[..., :3] * o[..., 3:4]
-        seed = (sat(b, 5) < ZONE_LAND_SEED) & (M_FEATHER > 0.5)
-        lab, n = ndimage.label(seed)
-        frame = ndimage.binary_dilation(M_FEATHER < 0.6, iterations=8)
-        keep = sorted(set(np.unique(lab[frame & (lab > 0)]).tolist()) - {0})
-        sizes = ndimage.sum(np.ones_like(lab), lab, index=keep) if keep else []
-        seed = np.isin(lab, [i for i, s in zip(keep, sizes) if s >= ZONE_LAND_MIN])
-        sea = ndimage.binary_propagation(seed, mask=seed | (sat(drawn, 2) < ZONE_LAND_GROW))
-        sea = ndimage.binary_opening(sea, iterations=2)
-        _cache[("zsea_found", m["id"])] = sea
+        sea = zone_sea_found(m)
         t = terr_own(m)
         if t is None:
             _cache[k] = None
             return None
-        # its land: the territory less that sea (a pixel more, so the edge sits on the coast's ink);
-        # small patches cut off out in the sea (a compass rose, specks the sea's colour missed) go
-        solid = (t > 0.5) & ~ndimage.binary_dilation(sea, iterations=1)
+        # its land: the territory less that sea (a pixel more, so the edge sits on the coast's ink),
+        # never its own land (its pieces, own_land: pale land, the Plaguelands' blight, reads as sea by
+        # colour); small patches cut off out in the sea (a compass rose, specks the sea's colour missed) go
+        sea_ = sea & ~ndimage.binary_dilation(own_land(m), iterations=2)
+        coast = island_coast(m)
+        if coast is not None:                             # (an island: its land is known, the rest is its sea)
+            sea_ |= ~ndimage.binary_dilation(own_land(m) | coast, iterations=2)
+        solid = (t > 0.5) & ~ndimage.binary_dilation(sea_, iterations=1)
         lab, n = ndimage.label(solid)
         if n:
             sizes = ndimage.sum(np.ones_like(lab), lab, index=range(1, n + 1))
             solid = np.isin(lab, [i + 1 for i, s in enumerate(sizes) if s >= ZONE_LAND_ISLAND])
-        _cache[k] = t * ndimage.gaussian_filter(solid.astype(np.float32), 1.0)
+        _cache[k] = t * ndimage.gaussian_filter(solid.astype(np.float32), ZONE_LAND_SOFT)
     return _cache[k]
 
 # MapZoneBorder: a zone's share of the land round it that's no zone's (the mountains along its
@@ -905,6 +917,7 @@ def zone_land(m):
 BORDER_REACH = 12               # world units (Stitch.lua's BORDER_REACH)
 BORDER_GRID = 2                 # px per world unit, laying a continent's zones out together
 BORDER_PX = 128                 # the masks' size
+BORDER_SOFT = 2.5               # its edge falloff, in BORDER_GRID px (it meets the zones' land masks soft too)
 W_, H_ = 1002.0, 668.0          # Azeroth's map in world units (render()'s W, H)
 
 def zone_borders():
@@ -949,7 +962,7 @@ def zone_borders():
         nearest = label[iy, ix]
         free &= dist <= BORDER_REACH * G
         for i, m in enumerate(mine, 1):
-            share = ndimage.gaussian_filter((free & (nearest == i)).astype(np.float32), 1.0)
+            share = ndimage.gaussian_filter((free & (nearest == i)).astype(np.float32), BORDER_SOFT)
             share *= np.clip(1 - covered, 0, 1)              # (only what the zones' own land leaves)
             x0, y0, x1, y1 = box(m)
             R = BORDER_REACH * G
@@ -983,12 +996,75 @@ def zone_land_shared(m):
         _cache[k] = None if own is None else own / np.maximum(1.0, own + neighbours_on(m))
     return _cache[k]
 
+def saturation(img, s):
+    """an image's saturation, blurred by s px"""
+    bb = np.dstack([ndimage.gaussian_filter(img[..., c], s) for c in range(3)])
+    mx, mn = bb.max(2), bb.min(2)
+    return (mx - mn) / np.maximum(mx, 1e-3)
+
+def drawn_art(m):
+    """a zone's base art with its overlays over it, as drawn (its art px, rgb)"""
+    b, o = base(m)[..., :3], over(m)
+    return b * (1 - o[..., 3:4]) + o[..., :3] * o[..., 3:4]
+
 def zone_sea_found(m):
     """the sea zone_land finds in a zone's art (its art px): open sea reaching its frame, grown to
     the coast; stricter than zone_sea (no lakes, no grey land, no small maps' inlets)"""
     k = ("zsea_found", m["id"])
-    if k not in _cache: zone_land(m)
-    return _cache.get(k)
+    if k not in _cache:
+        from scipy import ndimage
+        b, drawn = base(m)[..., :3], drawn_art(m)
+        seed = (saturation(b, 5) < ZONE_LAND_SEED) & (M_FEATHER > 0.5)
+        lab, n = ndimage.label(seed)
+        frame = ndimage.binary_dilation(M_FEATHER < 0.6, iterations=8)
+        keep = sorted(set(np.unique(lab[frame & (lab > 0)]).tolist()) - {0})
+        sizes = ndimage.sum(np.ones_like(lab), lab, index=keep) if keep else []
+        seed = np.isin(lab, [i for i, s in zip(keep, sizes) if s >= ZONE_LAND_MIN])
+        sea = ndimage.binary_propagation(seed, mask=seed | (saturation(drawn, 2) < ZONE_LAND_GROW))
+        _cache[k] = ndimage.binary_opening(sea, iterations=2)
+    return _cache[k]
+
+def continent_land(m):
+    """the land of the continent a zone is on (MapLand), on the zone's art px"""
+    k = ("cland", m["id"])
+    if k not in _cache:
+        l, r, t, b = m["rect"]
+        mx, my = (l + r) / 2, (t + b) / 2
+        c = next((c for c in maps if c["kind"] == 2 and c["rect"][0] <= mx <= c["rect"][1] and c["rect"][2] <= my <= c["rect"][3]), None)
+        if c is None:
+            _cache[k] = np.zeros((668, 1002), np.float32)
+        else:
+            cl, cr, ct, cb = c["rect"]
+            xs = (l + (np.arange(1002) + 0.5) / 1002 * (r - l) - cl) / (cr - cl) * 1002 - 0.5
+            ys = (t + (np.arange(668) + 0.5) / 668 * (b - t) - ct) / (cb - ct) * 668 - 0.5
+            Y, X = np.meshgrid(ys, xs, indexing="ij")
+            _cache[k] = ndimage.map_coordinates(field_img(c)[..., 3], [Y, X], order=1, mode="constant", cval=0)
+    return _cache[k]
+
+# An island zone the continent's art doesn't show as land (Teldrassil, in Kalimdor's decorated corner)
+# has no coast for the territories' painted sea to reach from (terr_shared's TERR_SEA), and its overlays
+# leave out the coast it paints round them (Teldrassil's roots, whose grain also reads as lettering), so
+# its territory had holes all round its shore: that coast is taken from its own art instead
+ISLAND_OFF = 0.05               # a zone with less than this share of its own land on the continent's land is such an island
+ISLAND_FRAME = 35               # zone art px inside its frame the coast stops at (the parchment's burnt edge isn't land)
+def island_coast(m):
+    """the coast an island zone paints past its overlays (its art px; None if it isn't one): what its
+    art paints that isn't sea (zone_sea_found, nor the sea's colour: the inlets between Teldrassil's
+    roots) joined to its own land, up to SHORE[1] world units off it, short of its frame"""
+    k = ("island", m["id"])
+    if k not in _cache:
+        _cache[k] = None
+        own = own_land(m)
+        if own.any() and (own & (continent_land(m) > 0.5)).sum() < ISLAND_OFF * own.sum():
+            l, r, t, b = m["rect"]
+            d = ndimage.distance_transform_edt(~own) * (r - l)        # (world units: an art px is r - l of them)
+            inside = ndimage.distance_transform_edt(edge(m) > 0.5)
+            land = ~zone_sea_found(m) & (saturation(drawn_art(m), 2) >= ZONE_LAND_GROW)
+            lab, _ = ndimage.label(own | (land & (inside > ISLAND_FRAME) & (d <= SHORE[1])))
+            ids = np.unique(lab[own])
+            coast = ndimage.binary_fill_holes(np.isin(lab, ids[ids > 0])) & ~own
+            if coast.any(): _cache[k] = coast
+    return _cache[k]
 
 def bake_zone_land():
     outdir_ = os.path.join(TEXDIR, "MapZoneLand")
@@ -1028,6 +1104,12 @@ def terr_own_raw(m):
     inside = ndimage.distance_transform_edt(edge(m) > 0.5)
     sf = np.clip(inside / SHORE_FRAME, 0, 1)
     terr = np.maximum(terr, shore(m) * sf * sf * (3 - 2 * sf))
+    # an island's coast its overlays leave out (Teldrassil's roots), with the land's margin, fading in at
+    # its frame as the shore does
+    coast = island_coast(m)
+    if coast is not None:
+        ct_ = np.clip(1 - np.maximum(0, ndimage.distance_transform_edt(~coast) - TERR_MARGIN[0]) / TERR_MARGIN[1], 0, 1)
+        terr = np.maximum(terr, ct_ * ct_ * (3 - 2 * ct_) * sf * sf * (3 - 2 * sf))
     # the cities inside it (Orgrimmar in Durotar ...): maps of their own, shown only once you're
     # close, so until then the zone's painting of them shows. (The game lists cities under their
     # continent: a city belongs to the zone whose own land is at its centre)

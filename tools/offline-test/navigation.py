@@ -67,7 +67,7 @@ class NavigationTests(unittest.TestCase):
         """)
 
     def test_saved_preferences_migrate(self):
-        for old, expected in [('', 'always'), ('rememberView=true', 'always'),
+        for old, expected in [('', 'player'), ('rememberView=true', 'always'),
                               ("reopenView='zone'", 'always'),
                               ('rememberView=false', 'player'),
                               ('rememberView=true,rememberViewInView=true', 'visible')]:

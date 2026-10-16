@@ -39,6 +39,22 @@ BANNERS = {
         ("poly", [(695, 499), (716, 500), (736, 505), (747, 513), (750, 524), (745, 532),
                   (737, 535), (731, 528), (723, 521), (695, 521)]),        # the right one
     ]),
+    "Thunder Bluff": ("Mulgore", [
+        ("rect", (340, 229, 458, 254)),                                     # the plate
+        ("poly", [(341, 236), (326, 237), (318, 239), (312, 243), (309, 249), (311, 256),
+                  (316, 261), (322, 262), (326, 258), (330, 252), (341, 253)]),   # the left scroll end
+        ("poly", [(457, 236), (470, 237), (482, 239), (490, 244), (494, 250), (493, 258),
+                  (489, 262), (484, 261), (482, 255), (476, 252), (457, 253)]),   # the right one
+    ]),
+    # (Darnassus isn't cut: Teldrassil's banner lies across the foot of its map, so it stays over it at
+    # every zoom, crisp, instead of showing through its fading edge; the city's own banner is under it)
+    "Darnassus": ("Teldrassil", [
+        ("rect", (167, 430, 351, 471)),                                     # the plate
+        ("poly", [(168, 444), (150, 445), (132, 448), (120, 455), (115, 465), (120, 476),
+                  (130, 482), (140, 480), (146, 472), (168, 471)]),        # the left scroll end
+        ("poly", [(350, 444), (370, 445), (388, 448), (400, 455), (408, 467), (404, 480),
+                  (396, 486), (386, 481), (380, 472), (350, 471)]),        # the right one
+    ]),
 }
 # city -> its plan's outline on its own art: the valleys, the Drag and the gate (its banner, top
 # left, is CITY_TITLES'; not the Horde emblem, bottom right)
@@ -54,6 +70,14 @@ CITIES = {
                   (870, 260), (880, 380), (910, 440), (900, 520), (830, 530), (760, 470), (660, 480),
                   (620, 520), (630, 600), (595, 625), (525, 625), (470, 610), (430, 560), (420, 470),
                   (420, 400), (450, 330), (400, 290), (330, 250), (270, 320), (170, 330), (110, 280)],
+    # the four rises and the ground round them (its banner, top middle, is CITY_TITLES'; not the
+    # Tauren emblem, bottom right)
+    "Thunder Bluff": [(125, 110), (170, 80), (260, 72), (330, 95), (380, 130), (440, 100), (500, 110),
+                      (540, 170), (600, 165), (650, 140), (700, 115), (800, 110), (865, 150), (875, 215),
+                      (845, 280), (760, 300), (700, 290), (690, 340), (690, 420), (650, 470), (690, 520),
+                      (695, 580), (660, 615), (560, 620), (505, 590), (495, 500), (470, 475), (420, 480),
+                      (330, 475), (265, 450), (255, 395), (290, 350), (310, 295), (270, 255), (200, 245),
+                      (140, 215), (115, 160)],
 }
 # city -> its own name banner's outline on its own art, kept in its cut: up close it's the city's
 # title, and its zone's banner for it (MapBanner, bigger, over the city) goes as the city comes in
@@ -62,7 +86,14 @@ CITY_TITLES = {
                   (566, 168), (556, 180), (527, 190), (300, 193), (252, 199), (226, 196), (215, 180)],
     "Undercity": [(30, 95), (45, 84), (108, 80), (108, 63), (338, 63), (338, 80), (400, 84), (415, 95),
                   (412, 118), (395, 129), (338, 119), (110, 119), (50, 129), (32, 118)],
+    "Thunder Bluff": [(322, 58), (340, 50), (398, 48), (398, 32), (627, 32), (627, 48), (680, 52), (698, 64),
+                      (702, 82), (694, 100), (680, 98), (668, 86), (627, 80), (398, 80), (350, 84), (340, 96),
+                      (325, 92), (318, 74)],
 }
+# cities whose cut also takes in their zone's banner for them (BANNERS, moved onto their own art): where
+# the zone's base art under it isn't its overlay's colour (Mulgore's is bare parchment under its green),
+# the city's own map covers the hole the banner leaves once it's gone
+COVER_BANNER = {"Thunder Bluff"}
 CITY_SOFT = 50                  # art px over which a city's cut fades (out from its outline: the plan stays whole)
 TITLE_FRAME = (10, 28)          # art px from the art's edge where a kept banner's cut is gone / whole (its torn frame)
 
@@ -111,11 +142,21 @@ ys_, xs_ = np.mgrid[0:668, 0:1002]
 from_edge = np.minimum(np.minimum(xs_, 1001 - xs_), np.minimum(ys_, 667 - ys_)).astype(np.float32)
 INSIDE_FRAME = np.clip((from_edge - TITLE_FRAME[0]) / (TITLE_FRAME[1] - TITLE_FRAME[0]), 0, 1)
 
+def banner_on_city(city):
+    """the zone's banner for the city (BANNERS), its outline moved onto the city's own art"""
+    zone, shapes = BANNERS[city]
+    (cl, cr, ct, cb), (zl, zr, zt, zb) = by_name[city]["rect"], by_name[zone]["rect"]
+    to = lambda x, y: ((zl + x / 1002 * (zr - zl) - cl) / (cr - cl) * 1002, (zt + y / 668 * (zb - zt) - ct) / (cb - ct) * 668)
+    for kind, s in shapes:
+        yield [to(*p) for p in ([(s[0], s[1]), (s[2], s[1]), (s[2], s[3]), (s[0], s[3])] if kind == "rect" else s)]
+
 cut = []
 for city, poly in CITIES.items():
     c = by_name[city]
     m_ = soft_cut(poly)
     if city in CITY_TITLES: m_ = np.maximum(m_, soft_cut(CITY_TITLES[city]) * INSIDE_FRAME)
+    if city in COVER_BANNER:
+        for s in banner_on_city(city): m_ = np.maximum(m_, soft_cut(s) * INSIDE_FRAME)
     mask = Image.fromarray(np.clip(m_ + 0.5, 0, 255).astype(np.uint8)).resize((256, 256), Image.LANCZOS)
     Image.merge("RGBA", (Image.new("L", (256, 256), 255),) * 3 + (mask,)).save(os.path.join(TEX, "MapCityMask", "%d.tga" % c["id"]))
     cut.append((c["id"], city))
