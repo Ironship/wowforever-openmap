@@ -30,6 +30,7 @@ local mod = ns:NewModule("worldmap", {
 		desaturate = 0.1,
 		unexplored = "show",    -- areas not explored yet: "show", "dim" or "hide"
 		shade = 0.62,           -- how strongly unexplored areas are shaded ("dim"): 0 none .. 1 the shade's fullest
+		pinsFrom = 1.5,         -- other addons' pins (Questie's) show from this zoom (the whole world is 1)
 		maxZoom = 48,           -- x the whole-world view (MAX_ZOOM: what it can be set to)
 	},
 })
@@ -1033,6 +1034,9 @@ function mod:Options()
 		shade = { type = "range", name = "Unexplored shading", order = 23.5, min = 0, max = 1, step = 0.05, isPercent = true,
 			get = get, set = set, disabled = off,
 			desc = "How strongly areas you haven't explored are shaded; 0 shows them as if explored, the default is how the map comes, higher darkens further." },
+		pinsFrom = { type = "range", name = "Other addons' pins from", order = 23.7, min = 1, max = 8, step = 0.5, isPercent = false,
+			get = get, set = set, disabled = off,
+			desc = "Questie's and other HereBeDragons addons' pins are shown from this zoom in. Zoomed out further they are hidden - that far out they overlap each other and hide the map." },
 		maxZoom = { type = "range", name = "Deepest zoom", order = 24, min = MAX_ZOOM[1], max = MAX_ZOOM[2], step = MAX_ZOOM[3],
 			get = get, set = function(_, v) mod.SetMaxZoom(v) if mod.RefreshPanel then mod:RefreshPanel() end end, disabled = off,
 			desc = "How far in the map zooms, in times the whole-world view (cities go half as far again). Past about 48 the art is only enlarged." },

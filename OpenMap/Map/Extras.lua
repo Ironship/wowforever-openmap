@@ -344,13 +344,16 @@ end
 -- Questie alone keeps hundreds, and a continent map brings every zone's along. Hidden pins cost
 -- nothing (the way S.Cull keeps OpenMap's own), so every placement is written down, and on a view
 -- change the ones outside the view - with a margin for what a pan would show next - are hidden,
--- and the ones the view has come back to shown. Only frames this file hid are ever shown again:
--- an owner's own Hide stands; a record's `hidden` is the only state touched, so a still view's
--- pass does nothing.
+-- and the ones the view has come back to shown. Zoomed out past the "Other addons' pins from"
+-- zoom (S.SetView's last argument: the whole world is 1) every one of them is hidden - that far
+-- out hundreds of them would sit on top of each other and hide the map - and shown again as the
+-- view zooms past it. Only frames this file hid are ever shown again: an owner's own Hide stands;
+-- a record's `hidden` is the only state touched, so a still view's pass does nothing.
 local CULL_MARGIN = 0.2         -- of the view's size, on every side: pins this far out are still shown
 local recordSets = {}           -- each taken-over copy's records: frame -> { x, y, moved, hidden }
+                                --  (no x, y: a spot only its library knows, e.g. Questie's on the world map)
 
-local function CullPins(u, v, hu, hv)
+local function CullPins(u, v, hu, hv, _, zoom)
 	if not map then return end
 	if not mod.IsStitched() then
 		-- (not the stitched map any more: what was hidden goes back up, and the map change
@@ -365,12 +368,21 @@ local function CullPins(u, v, hu, hv)
 	end
 	local mapID = map:GetMapID()
 	if not map:IsShown() or not mapID or not S.Rect(mapID) then return end
+	local tooFar = zoom and zoom < (mod.db.pinsFrom or 1.5)
 	local w, h = hu * 2 * CULL_MARGIN, hv * 2 * CULL_MARGIN
 	local x0, y0 = mod.FromWorld(mapID, u - hu - w, v - hv - h)
 	local x1, y1 = mod.FromWorld(mapID, u + hu + w, v + hv + h)
 	for _, records in ipairs(recordSets) do
 		for frame, r in pairs(records) do
-			if r.x >= x0 and r.x <= x1 and r.y >= y0 and r.y <= y1 then
+			local inside
+			if tooFar then
+				inside = false
+			elseif r.x then
+				inside = r.x >= x0 and r.x <= x1 and r.y >= y0 and r.y <= y1
+			else
+				inside = true    -- (no spot of ours: the library's own placement, which stays)
+			end
+			if inside then
 				if r.hidden then
 					r.hidden = nil
 					pcall(frame.Show, frame)
@@ -389,7 +401,7 @@ local function CullNow()
 	if not mod.ViewNow then return end
 	local u, v, zoom = mod.ViewNow()
 	if not u then return end
-	CullPins(u, v, mod.ViewHalfExtents(zoom))
+	CullPins(u, v, mod.ViewHalfExtents(zoom), nil, zoom)
 end
 
 -- the view changes (WorldMap.lua calls S.SetView on every pan, zoom and map update): cull.
@@ -434,6 +446,10 @@ local function SetUpPins(name, pins)
 		if placed then count.placed = count.placed + 1 end
 		if placed and spec.questie and mod.IsStitched() then Lift(icon) end
 		if not mod.IsStitched() then return end
+		-- every placed pin is written down, wherever it ends up: the view cull and the zoom rule
+		-- act on all of them (x and y are added below only where they can be worked out; without
+		-- them the library's own placement stands, e.g. Questie's on the world map)
+		if placed then records[placed] = { moved = true } end
 		local uiMapID, mx, my = data.uiMapID, data.mapX, data.mapY
 		if not (mx and my) and at[icon] and at[icon][1] == uiMapID then uiMapID, mx, my = at[icon][1], at[icon][2], at[icon][3] end
 		if not uiMapID or not mx or not my then return end

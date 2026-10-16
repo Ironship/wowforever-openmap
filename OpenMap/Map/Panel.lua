@@ -1312,6 +1312,7 @@ function mod:SetupPanel(worldMap)
 		{ "desaturate", L["Take colour out"], Icon("Spell_Shadow_Twilight") },
 		{ "shade", L["Unexplored shading"], Icon("Ability_Vanish"),
 			enabled = function() return mod.db.unexplored == "dim" end },
+		{ "pinsFrom", L["Other addons' pins from"], Icon("INV_Misc_Map_01"), fmt = "%.1fx" },
 		{ "minimapMix", L["Minimap strength"], Icon("Spell_Nature_FarSight") },
 		{ "moveFade", L["Fade while moving"], Icon("Ability_Stealth") },
 	}) do
@@ -1321,7 +1322,7 @@ function mod:SetupPanel(worldMap)
 				get = function() return mod:Options()[key].get({ key }) end,
 				set = function(v) mod:Options()[key].set({ key }, v) end,
 				enabled = s.enabled or o.enabled,
-				fmt = o.isPercent and "%d%%" or "%.2f", show = o.isPercent and function(v) return math.floor(v * 100 + 0.5) end or nil,
+				fmt = s.fmt or (o.isPercent and "%d%%" or "%.2f"), show = o.isPercent and function(v) return math.floor(v * 100 + 0.5) end or nil,
 				tip = o.desc or s[2] })
 			made[key] = r
 			menu.extraRows[#menu.extraRows + 1] = r
@@ -1329,7 +1330,7 @@ function mod:SetupPanel(worldMap)
 	end
 	-- each column's, top down
 	local height = 0
-	for col, list in ipairs({ { "zoom", "windowScale", "colorMatch", "desaturate", "shade" }, { "from", "minimapMix", "opacity", "moveFade" } }) do
+	for col, list in ipairs({ { "zoom", "windowScale", "colorMatch", "desaturate", "shade", "pinsFrom" }, { "from", "minimapMix", "opacity", "moveFade" } }) do
 		local y = -22
 		for _, key in ipairs(list) do
 			local r = made[key]
