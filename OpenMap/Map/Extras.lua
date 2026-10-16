@@ -20,7 +20,7 @@ d.zoneLevels = true
 d.moveFade = 0                  -- how much the map fades while you move (0 to 0.9)
 
 local map, sc, bar
-local labelProvider, labelOnUpdate      -- Blizzard's area label, and its own OnUpdate
+local labelProvider                     -- Blizzard's area label
 
 local function SetCVarSafe(name, value)
 	if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, name, value) elseif SetCVar then pcall(SetCVar, name, value) end
@@ -243,13 +243,15 @@ function mod.LevelColor(lo, hi)
 end
 
 local function LevelText(mapID)
-	local lv = ns.MapLevels and ns.MapLevels[mapID]
+	local lv = mod.db.zoneLevels and ns.MapLevels and ns.MapLevels[mapID]
 	if not lv or not lv[1] or not lv[2] then return "" end
 	local code, range = mod.LevelColor(lv[1], lv[2])
 	return (" %s(%s)|r"):format(code, range)
 end
 
--- replaces AreaLabelFrameMixin's OnUpdate: the place under the cursor, with its levels
+-- replaces AreaLabelFrameMixin's OnUpdate: the place under the cursor, with its levels. The stitched
+-- map is on the zone you're looking at, so that zone is the map's own: where the game names no
+-- area in it, its own name (Blizzard's label showed none there: its title went missing, #25)
 local function AreaLabelOnUpdate(self)
 	self:ClearLabel(MAP_AREA_LABEL_TYPE.AREA_NAME)
 	local m = self.dataProvider:GetMap()
@@ -262,6 +264,10 @@ local function AreaLabelOnUpdate(self)
 			if name then name = name .. LevelText(id) end
 		elseif x >= 0 and x <= 1 and y >= 0 and y <= 1 then
 			name = MapUtil.FindBestAreaNameAtMouse(mapID, x, y)
+			if not name and id == mapID and mod.IsStitched() then
+				name = MapName(id)
+				if name then name = name .. LevelText(id) end
+			end
 		end
 		if name then self:SetLabel(MAP_AREA_LABEL_TYPE.AREA_NAME, name) end
 	end
@@ -274,9 +280,8 @@ local function SetUpZoneLevels()
 			if provider.Label and provider.Label.SetLabel then labelProvider = provider break end
 		end
 		if not labelProvider then return end
-		labelOnUpdate = labelProvider.Label:GetScript("OnUpdate")
 	end
-	labelProvider.Label:SetScript("OnUpdate", mod.db.zoneLevels and AreaLabelOnUpdate or labelOnUpdate)
+	labelProvider.Label:SetScript("OnUpdate", AreaLabelOnUpdate)   -- (the levels only with zoneLevels: LevelText)
 end
 
 --------------------------------------------------------------------------------

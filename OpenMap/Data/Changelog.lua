@@ -4,6 +4,9 @@
 local _, ns = ...
 
 ns.MapChangelog = {
+	{ version = "Unreleased", date = "", heads = { [1] = "Fixed", }, items = {
+		"The zone you're looking at has its name over the map again when you hover it, where the game names no place in it (Silverpine Forest's had gone; reported in #25). With Zone levels off, zone names still show, without their levels.",
+	} },
 	{ version = "v0.4.0-beta", date = "2026-10-16", heads = { [1] = "New", [11] = "Improved", [20] = "Fixed", }, items = {
 		"|cff6e2c0aDungeon maps.|r Click a dungeon's entrance for its own map, drawn from the game's own art (WoW Forever's map never shows it), right in the map window. Zoom with the wheel, drag to pan, and step through its floors with the arrows, the floor list or the side panel's Floors tab, which shows each floor as a small picture. Where several share an entrance you pick one; Blackrock Spire, Dire Maul and Scarlet Monastery are listed by wing, each opening on its own floor. Right-click, Escape or Back takes you back to the world where you were. 25 dungeons and raids have maps; WoW Forever's own new dungeons open on a blank page until the game has art for them.",
 		"|cff6e2c0aA side panel for each dungeon|r, in the quest log's place and look, as a tab beside the log: its floors, its bosses, its quests (with Questie: their level, done or in your log, objectives on hover) and its loot, where we recommend NeedRoll by mikebvs (a boss's row opens it). Put the quest log away and the dungeon's map has the whole view; the tabs at the map's edge bring the log back.",
