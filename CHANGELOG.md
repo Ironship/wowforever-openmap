@@ -13,6 +13,9 @@
   waits with the rest.
 - A HereBeDragons copy OpenMap can't recognize is left to place its pins the game's way - and said
   once, after a few map opens - instead of being passed over in silence.
+- If this client's map layers aren't the ones OpenMap needs (a renamed level, an insert that
+  fails), the seamless map stays off with a line in chat, instead of building its art over every
+  pin; `/openmap status` prints the frame levels it read.
 
 ## v0.4.0-beta (2026-10-16)
 

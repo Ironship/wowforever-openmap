@@ -483,6 +483,7 @@ end
 
 -- zoom levels from the whole world to street level, in this map's scale
 local function OnCreateZoomLevels(self)
+	if mod.levelsBad then return end   -- (a build OpenMap's layers aren't for: never built)
 	if not S.IsBuilt() then
 		local fl = map:GetPinFrameLevelsManager()
 		S.Build(map:GetCanvas(), fl:GetValidFrameLevel("PIN_FRAME_LEVEL_OPENMAP_STITCH"), ART_RANGE,
@@ -707,9 +708,17 @@ local function Setup()
 
 	-- our art sits just above Blizzard's exploration overlays, our icons above the highlight
 	local fl = map:GetPinFrameLevelsManager()
-	if not fl:InsertFrameLevelAbove("PIN_FRAME_LEVEL_OPENMAP_STITCH", "PIN_FRAME_LEVEL_MAP_EXPLORATION", ART_RANGE)
-		or not fl:InsertFrameLevelAbove("PIN_FRAME_LEVEL_OPENMAP_ICONS", "PIN_FRAME_LEVEL_MAP_HIGHLIGHT", 6) then
-		ns:Print("World map: Blizzard's map layers aren't the expected ones; the stitched art may cover some map icons.")
+	local okArt = fl:InsertFrameLevelAbove("PIN_FRAME_LEVEL_OPENMAP_STITCH", "PIN_FRAME_LEVEL_MAP_EXPLORATION", ART_RANGE)
+	local okIcons = fl:InsertFrameLevelAbove("PIN_FRAME_LEVEL_OPENMAP_ICONS", "PIN_FRAME_LEVEL_MAP_HIGHLIGHT", 6)
+	local artLevel = okArt and fl:GetValidFrameLevel("PIN_FRAME_LEVEL_OPENMAP_STITCH")
+	local iconLevel = okIcons and fl:GetValidFrameLevel("PIN_FRAME_LEVEL_OPENMAP_ICONS")
+	local explore = fl:GetValidFrameLevel("PIN_FRAME_LEVEL_MAP_EXPLORATION")
+	if not (artLevel and iconLevel and artLevel > explore and iconLevel > artLevel + ART_RANGE) then
+		-- (an insert that fails falls back to the default level: the art would build over every pin.
+		-- Nothing is wired; Blizzard's own map is shown, as on a build OpenMap doesn't know)
+		mod.levelsBad = true
+		ns:Print("World map: Blizzard's map layers aren't the ones OpenMap needs; the seamless map is off for this build.")
+		return
 	end
 
 	S.OnPinMouseDown, S.OnPinMouseUp = OnPinMouseDown, OnPinMouseUp
@@ -920,9 +929,20 @@ end
 
 -- /openmap status: what the map is doing
 function mod:Diag()
+	if mod.levelsBad then
+		ns:Print("World map: Blizzard's map layers aren't the ones OpenMap needs; the seamless map is off for this build.")
+		return
+	end
 	if not map or not sc or not S.IsBuilt() then
 		ns:Print("World map: not built yet (it's built the first time the map opens).")
 		return
+	end
+	local fl = map:GetPinFrameLevelsManager()
+	if fl then
+		local _, explore = pcall(fl.GetValidFrameLevel, fl, "PIN_FRAME_LEVEL_MAP_EXPLORATION")
+		local _, art = pcall(fl.GetValidFrameLevel, fl, "PIN_FRAME_LEVEL_OPENMAP_STITCH")
+		local _, icons = pcall(fl.GetValidFrameLevel, fl, "PIN_FRAME_LEVEL_OPENMAP_ICONS")
+		ns:Print("Frame levels: exploration %s, art %s, icons %s.", tostring(explore), tostring(art), tostring(icons))
 	end
 	local mapID = map:GetMapID()
 	local info = C_Map.GetMapInfo(mapID)
