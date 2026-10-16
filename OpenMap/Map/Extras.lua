@@ -341,17 +341,43 @@ local function PoolTemplate(spec)
 end
 
 -- The pins the takeover places are on the map whether or not they're anywhere near the view:
--- Questie alone keeps hundreds, and a continent map brings every zone's along. Hidden pins cost
--- nothing (the way S.Cull keeps OpenMap's own), so every placement is written down, and on a view
+-- Questie alone keeps hundreds, and a continent map brings every zone's along. Hidden pins aren't
+-- drawn, so every placement is written down, and on a view
 -- change the ones outside the view - with a margin for what a pan would show next - are hidden,
 -- and the ones the view has come back to shown. Zoomed out past the "Other addons' pins from"
 -- zoom (S.SetView's last argument: the whole world is 1) every one of them is hidden - that far
 -- out hundreds of them would sit on top of each other and hide the map - and shown again as the
 -- view zooms past it. Only frames this file hid are ever shown again: an owner's own Hide stands;
 -- a record's `hidden` is the only state touched, so a still view's pass does nothing.
-local CULL_MARGIN = 0.2         -- of the view's size, on every side: pins this far out are still shown
-local recordSets = {}           -- each taken-over copy's records: frame -> { x, y, moved, hidden }
+local CULL_MARGIN, CULL_KEEP, CULL_ZOOM = 0.2, 0.05, 1.6
+local cullBox                   -- kept until the view nears its edge or the pins change
+local recordSets = {}           -- each taken-over copy's records: frame -> { x, y, hidden }
                                 --  (no x, y: a spot only its library knows, e.g. Questie's on the world map)
+local releaseHooked = setmetatable({}, { __mode = "k" })
+
+local function PinsChanged()
+	cullBox = nil
+	if mod.RefreshView then mod.RefreshView() end   -- (coalesced; moving a pin needn't dirty Blizzard's canvas)
+end
+
+local function ForgetPin(frame)
+	-- A pool can serve several library copies; none may keep a released holder's old position.
+	for _, records in ipairs(recordSets) do records[frame] = nil end
+	PinsChanged()
+end
+
+local function NotePin(records, frame, x, y)
+	local r = records[frame] or {}
+	r.x, r.y = x, y
+	if frame:IsShown() then r.hidden = nil end   -- (AcquirePin showed it again; a move alone may not)
+	records[frame] = r
+	if not releaseHooked[frame] and type(frame.OnReleased) == "function" then
+		releaseHooked[frame] = true
+		hooksecurefunc(frame, "OnReleased", ForgetPin)
+	end
+	PinsChanged()
+	return r
+end
 
 local function CullPins(u, v, hu, hv, _, zoom)
 	if not map then return end
@@ -364,13 +390,25 @@ local function CullPins(u, v, hu, hv, _, zoom)
 				records[frame] = nil
 			end
 		end
+		cullBox = nil
 		return
 	end
 	local mapID = map:GetMapID()
 	if not map:IsShown() or not mapID or not S.Rect(mapID) then return end
 	if not (hu and hv) then return end   -- (a caller's shape this can't measure by: no cull, no warning)
 	local tooFar = zoom and zoom < (mod.db.pinsFrom or 1.5)
+	local box = cullBox
+	local kw, kh = hu * 2 * CULL_KEEP, hv * 2 * CULL_KEEP
+	if box and box.mapID == mapID and box.tooFar == tooFar then
+		if tooFar then return end              -- (already hidden; only a pin change or crossing the zoom rule matters)
+		if hu * CULL_ZOOM > box.hu and hv * CULL_ZOOM > box.hv
+			and u - hu - kw > box[1] and u + hu + kw < box[3]
+			and v - hv - kh > box[2] and v + hv + kh < box[4] then return end
+	end
 	local w, h = hu * 2 * CULL_MARGIN, hv * 2 * CULL_MARGIN
+	cullBox = box or {}
+	cullBox[1], cullBox[2], cullBox[3], cullBox[4] = u - hu - w, v - hv - h, u + hu + w, v + hv + h
+	cullBox.hu, cullBox.hv, cullBox.mapID, cullBox.tooFar = hu, hv, mapID, tooFar
 	local x0, y0 = mod.FromWorld(mapID, u - hu - w, v - hv - h)
 	local x1, y1 = mod.FromWorld(mapID, u + hu + w, v + hv + h)
 	for _, records in ipairs(recordSets) do
@@ -388,7 +426,7 @@ local function CullPins(u, v, hu, hv, _, zoom)
 					r.hidden = nil
 					pcall(frame.Show, frame)
 				end
-			elseif not r.hidden then
+			elseif not r.hidden and frame:IsShown() then
 				r.hidden = true
 				pcall(frame.Hide, frame)
 			end
@@ -414,6 +452,12 @@ local function SetUpCull()
 	if cullHooked or type(S.SetView) ~= "function" then return end
 	cullHooked = true
 	hooksecurefunc(S, "SetView", CullPins)
+	if type(mod.OnStitchedChanged) == "function" then
+		hooksecurefunc(mod, "OnStitchedChanged", function(on)
+			cullBox = nil
+			if not on then CullPins() end    -- (SetView only runs while stitched)
+		end)
+	end
 end
 
 local function SetUpPins(name, pins)
@@ -438,7 +482,7 @@ local function SetUpPins(name, pins)
 		end
 	end
 	-- where this copy's pins are on the host map, and whether this file hid them (weak keys:
-	-- a frame nothing else holds drops out; the ones a pool keeps are cleared on a map change)
+	-- a frame nothing else holds drops out; pooled holders are forgotten as they are released)
 	local records = setmetatable({}, { __mode = "k" })
 	recordSets[#recordSets + 1] = records
 	local HandlePin = provider.HandlePin
@@ -452,7 +496,7 @@ local function SetUpPins(name, pins)
 		-- every placed pin is written down, wherever it ends up: the view cull and the zoom rule
 		-- act on all of them (x and y are added below only where they can be worked out; without
 		-- them the library's own placement stands, e.g. Questie's on the world map)
-		if placed then records[placed] = { moved = true } end
+		local record = placed and NotePin(records, placed)
 		local uiMapID, mx, my = data.uiMapID, data.mapX, data.mapY
 		if not (mx and my) and at[icon] and at[icon][1] == uiMapID then uiMapID, mx, my = at[icon][1], at[icon][2], at[icon][3] end
 		if not uiMapID or not mx or not my then return end
@@ -463,7 +507,8 @@ local function SetUpPins(name, pins)
 		local x, y = mod.FromWorld(mapID, l + mx * (r - l), t + my * (b - t))
 		if placed then                                      -- placed, but from coordinates that are off here
 			placed:SetPosition(x, y)
-			records[placed] = { x = x, y = y, moved = true }
+			record.x, record.y = x, y
+			if placed:IsShown() then record.hidden = nil end   -- (gamepad SetPosition may show it)
 			count.moved = count.moved + 1
 			return
 		end
@@ -475,7 +520,7 @@ local function SetUpPins(name, pins)
 		if profile and profile.hideIconsOnContinents and info.mapType == Enum.UIMapType.Continent then return end
 		if x < -NEAR or x > 1 + NEAR or y < -NEAR or y > 1 + NEAR then return end
 		local pin = self:GetMap():AcquirePin(template, icon, x, y, data.frameLevelType)
-		if pin then records[pin] = { x = x, y = y, moved = false } end
+		if pin then NotePin(records, pin, x, y) end
 		if spec.questie then Lift(icon) end
 		count.ours = count.ours + 1
 	end
@@ -491,6 +536,7 @@ local function SetUpPins(name, pins)
 				-- (Questie's is, without forceUpdate): the records must stand through it, or
 				-- pins this file hid would never be shown again)
 				for frame in pairs(records) do records[frame] = nil end
+				PinsChanged()
 			end
 			local out = { Refresh(self, ...) }
 			CullNow()   -- (nothing culls the pins a refresh has just placed until the view moves)

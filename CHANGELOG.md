@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- **Questie's and other HereBeDragons addons' pins** on the stitched map are shown for what's in
-  view: pins scrolled away cost nothing (the bench's "pins" part shows the drop), so a map with
-  hundreds of them - a continent carrying every zone's - stays smooth.
+- **Questie's and other HereBeDragons addons' pins** on the stitched map are only drawn near the
+  view. Small pans reuse the visibility check, and pins removed by their addon are forgotten
+  immediately, so culling no longer scans unused pooled frames or brings them back.
 - **Other addons' pins** (Questie's, the gatherers'...) are hidden while zoomed out past a set zoom
   ("Other addons' pins from", in the menu's Look tab), where a continent's worth of them would
   overlap each other and hide the map; zoom in and they come back.
@@ -17,10 +17,9 @@
 - **Without Questie,** the menu keeps its Questie rows (quest icons, dungeon quests, townsfolk,
   rares) visible and greyed, with a tooltip saying what's missing; a dungeon's card says where its
   quests would be; and one line at login says so - instead of those parts just being absent.
-- In combat the map's pin guard now covers every pin as it comes to the map, not only the ones the
-  map held when it opened: another addon's pins, an addon loaded later, or a pin made in combat no
-  longer block the map with an "action blocked" error, and a super-tracked pin's click handling
-  waits with the rest.
+- The map's combat guard defers Blizzard's pin mouse setup until combat ends, including
+  super-tracked pins and mixins loaded later. It no longer rescans the entire pin pool for every
+  acquired pin, avoiding quadratic work when hundreds of icons are rebuilt.
 - A HereBeDragons copy OpenMap can't recognize is left to place its pins the game's way - and said
   once, after a few map opens - instead of being passed over in silence.
 - If this client's map layers aren't the ones OpenMap needs (a renamed level, an insert that

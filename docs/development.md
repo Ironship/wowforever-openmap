@@ -35,6 +35,8 @@ AI coding agents: read [AGENTS.md](../AGENTS.md) too.
    python tools/offline-test/run.py plain
    python tools/offline-test/run.py combat
    python tools/offline-test/run.py secret
+   python tools/offline-test/combat.py
+   python tools/offline-test/culling.py
    ```
    `lint.py` catches single backslashes in texture paths, decimal escapes (`"Map\947"` is
    a load error that takes the whole file down), calls to functions that don't exist, and
