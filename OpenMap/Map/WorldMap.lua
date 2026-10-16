@@ -338,8 +338,9 @@ local ticker = CreateFrame("Frame")
 ticker:Hide()
 local elapsedSum = 0
 -- a switch has Blizzard refresh every map data provider (every Questie pin with them): a
--- hitch, so it waits until the view has been still this long, not the moment it stops
-local SWITCH_AFTER = 0.6
+-- hitch, so it waits until the view has been still a moment, not the moment it stops; a short
+-- wait - the icons of the zone under the view come in nearly as soon as it is looked at
+local SWITCH_AFTER = 0.3
 local stillFor = 0
 ticker:SetScript("OnUpdate", function(_, elapsed)
 	elapsedSum = elapsedSum + elapsed

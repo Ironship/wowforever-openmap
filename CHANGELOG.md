@@ -16,6 +16,9 @@
 - If this client's map layers aren't the ones OpenMap needs (a renamed level, an insert that
   fails), the seamless map stays off with a line in chat, instead of building its art over every
   pin; `/openmap status` prints the frame levels it read.
+- The map switches to the zone under the view sooner after it stops (a third of a second, not
+  most of one), so that zone's quest icons and other addons' pins come in nearly as soon as the
+  zone is looked at.
 
 ## v0.4.0-beta (2026-10-16)
 
