@@ -3,15 +3,19 @@
 ## Unreleased
 
 - **Questie's and other HereBeDragons addons' pins** on the stitched map are only drawn near the
-  view. Small pans reuse the visibility check, and pins removed by their addon are forgotten
-  immediately, so culling no longer scans unused pooled frames or brings them back.
+  view - on the world map too, by their written-down positions. Small pans reuse the visibility
+  check, and pins removed by their addon are forgotten immediately, so culling no longer scans
+  unused pooled frames or brings them back.
 - **Other addons' pins** (Questie's, the gatherers'...) are hidden while zoomed out past a set zoom
   ("Other addons' pins from", in the menu's Look tab), where a continent's worth of them would
   overlap each other and hide the map; zoom in and they come back.
 - **Unexplored areas** can be shaded as much or as little as you like: a slider ("Unexplored
   shading", in the menu's Look tab and the options) sets how strongly the land you haven't found
-  is darkened, from nothing (it reads as explored) to the map's own strength and beyond. It works
-  with "Darken unexplored areas" on, and comes at the strength the map already darkens them with.
+  is darkened, from nothing (it reads as explored) to the map's own strength and beyond. At 0 the
+  layers go entirely (a shown layer costs for nothing); a darkened piece replaces its art instead
+  of blending, so overlapping unexplored pieces darken once, and unfound cities follow the slider
+  too. It works with "Darken unexplored areas" on, and comes at the strength the map already
+  darkens them with.
 - **RareScanner:** its rare icons are lifted above the stitched map's art (they're made low on the
   canvas, under it), the way Leatrix Maps' icons already are.
 - **Without Questie,** the menu keeps its Questie rows (quest icons, dungeon quests, townsfolk,

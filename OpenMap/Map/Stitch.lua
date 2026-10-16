@@ -1925,8 +1925,9 @@ end
 
 -- the copies coloured for whether their piece is explored, at the colour settings now: the explored
 -- as the overlays are, over the unexplored, which are darkened (DIM) on the zone's land alone (the sea
--- it paints left as it is) and without their colour-match copy (a texture takes three masks). They take
--- the shade slider (Shade.strength) as an alpha: 1 at the default and above, less below
+-- it paints left as it is) and without their colour-match copy (a texture takes three masks). The
+-- darkened ones stay opaque and their colour is worked toward DIM with the shade slider (so an
+-- overlap of two unexplored pieces darkens once - alpha would darken it twice); at 0 they go
 function Shade.Colour(mapID, z)
 	local strength, desat = gradeNow[1], gradeNow[2]
 	local shade = UNDISCOVERED[4] > 0 and math.min(1, Shade.strength / UNDISCOVERED[4]) or 0
@@ -1943,30 +1944,34 @@ function Shade.Colour(mapID, z)
 		for _, e in ipairs(list) do
 			local r, g, b = 1, 1, 1
 			if e.twin and m then r, g, b = 1 + (m[1] - 1) * strength, 1 + (m[2] - 1) * strength, 1 + (m[3] - 1) * strength end
-			if dark then r, g, b = D[1], D[2], D[3] end
+			if dark then
+				-- (D * shade + (1 - shade): exact at both ends, where 1 + (D - 1) * shade is a ulp off)
+				r, g, b = D[1] * shade + (1 - shade), D[2] * shade + (1 - shade), D[3] * shade + (1 - shade)
+			end
 			local tex = e[1]
 			if z.dimLand and not e.twin and e.landed ~= dark then
 				e.landed = dark
 				if dark then tex:AddMaskTexture(z.dimLand) else tex:RemoveMaskTexture(z.dimLand) end
 			end
-			tex:SetVertexColor(r, g, b, shade)
-			tex:SetDesaturation(dark and math.max(desat, D[4]) or desat)
+			tex:SetVertexColor(r, g, b, 1)
+			tex:SetDesaturation(dark and (desat + (math.max(desat, D[4]) - desat) * shade) or desat)
 			tex:SetDrawLayer("ARTWORK", (dark and 0 or 2) + (e.twin and 1 or 0))
-			tex:SetShown(not (e.twin and (dark or strength <= 0)))
+			tex:SetShown(not (e.twin and (dark or strength <= 0)) and (not dark or shade > 0))
 		end
 	end
 end
 
 -- the "Unexplored shading" slider (WorldMap.lua's Refresh runs this with every setting change):
--- how strongly the shades darken. Every shade and rim texture takes it as its alpha, and the zones
--- whose darkened copies are up (an explored zone with some unexplored land) have them follow
+-- how strongly the shades darken. Every shade and rim texture takes it as its alpha; at 0 the
+-- layers go entirely (a shown layer costs for nothing), and the zones whose darkened copies are up
+-- (an explored zone with some unexplored land) have them follow
 function S.SetShadeStrength(v)
 	v = tonumber(v) or UNDISCOVERED[4]
 	if v < 0 then v = 0 elseif v > 1 then v = 1 end
 	Shade.strength = v
 	for _, tex in ipairs(Shade.made) do tex:SetAlpha(v) end
 	for mapID, z in pairs(Shade.zones) do
-		if z and z.dim and z.dim:IsShown() then Shade.Colour(mapID, z) end
+		if z then Shade.Show(mapID) end   -- (0 takes the shades away, back above; the copies follow)
 	end
 end
 
@@ -1995,7 +2000,7 @@ end
 -- pieces' copies; near the view only
 function Shade.Show(mapID)
 	local z = Shade.zones[mapID]
-	local state = Shade.on and Shade.Unexplored(mapID)
+	local state = Shade.on and Shade.strength > 0 and Shade.Unexplored(mapID)   -- (0: nothing to draw)
 	if not state then
 		if z then
 			z.frame:Hide()
@@ -2261,26 +2266,30 @@ cities.Banners = function()
 end
 
 -- an unfound city while unexplored areas are darkened: its own map and the zone's banner for it
--- darkened as the zone's unexplored art is (Shade.DIM). Both are drawn over the darkening (the banner
--- over everything, the city over a visited zone's darkened pieces), so it doesn't reach them
+-- darkened as the zone's unexplored art is (Shade.DIM), and by the shade slider as its copies are
+-- (at 0 the city reads as found). Both are drawn over the darkening (the banner over everything,
+-- the city over a visited zone's darkened pieces), so it doesn't reach them
 cities.Dim = function()
 	local D = Shade.DIM
 	local strength, desat = gradeNow[1], gradeNow[2]
+	local shade = UNDISCOVERED[4] > 0 and math.min(1, Shade.strength / UNDISCOVERED[4]) or 0
 	for _, c in ipairs(cities) do
 		local dark = Shade.on and c.piece and c.piece.unexplored and true or false
-		if c.dark ~= dark then
-			c.dark = dark
+		local state = dark and shade or false     -- (the slider takes part in the state: it must recolour)
+		if c.dark ~= state then
+			c.dark = state
 			local m = ns.MapGrade and ns.MapGrade[c.mapID]
 			for _, e in ipairs(zoneTex[c.mapID] or NONE) do
 				local r, g, b = 1, 1, 1
 				if e.twin and m then r, g, b = 1 + (m[1] - 1) * strength, 1 + (m[2] - 1) * strength, 1 + (m[3] - 1) * strength end
-				if dark then r, g, b = r * D[1], g * D[2], b * D[3] end
+				if dark then r, g, b = r * (D[1] * shade + (1 - shade)), g * (D[2] * shade + (1 - shade)), b * (D[3] * shade + (1 - shade)) end
 				e[1]:SetVertexColor(r, g, b, 1)
-				e[1]:SetDesaturation(dark and math.max(desat, D[4]) or desat)
+				e[1]:SetDesaturation(dark and (desat + (math.max(desat, D[4]) - desat) * shade) or desat)
 			end
 			if c.bannerTex then
-				c.bannerTex:SetVertexColor(dark and D[1] or 1, dark and D[2] or 1, dark and D[3] or 1, 1)
-				c.bannerTex:SetDesaturation(dark and D[4] or 0)
+				c.bannerTex:SetVertexColor(dark and (D[1] * shade + (1 - shade)) or 1, dark and (D[2] * shade + (1 - shade)) or 1,
+					dark and (D[3] * shade + (1 - shade)) or 1, 1)
+				c.bannerTex:SetDesaturation(dark and D[4] * shade or 0)
 			end
 		end
 	end

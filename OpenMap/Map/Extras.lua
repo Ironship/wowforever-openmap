@@ -501,10 +501,15 @@ local function SetUpPins(name, pins)
 		if not (mx and my) and at[icon] and at[icon][1] == uiMapID then uiMapID, mx, my = at[icon][1], at[icon][2], at[icon][3] end
 		if not uiMapID or not mx or not my then return end
 		local mapID = self:GetMap():GetMapID()
-		if mapID == S.WORLD and spec.questie then return end   -- (Questie's own Forever path: right there)
 		local l, r, t, b = S.Rect(uiMapID)
 		if not l then return end
 		local x, y = mod.FromWorld(mapID, l + mx * (r - l), t + my * (b - t))
+		if mapID == S.WORLD and spec.questie then
+			-- (Questie's own Forever path places it right there: write its spot down, so the view
+			-- cull and the zoom rule act on it too - without one it would always count as in view)
+			if record then record.x, record.y = x, y end
+			return
+		end
 		if placed then                                      -- placed, but from coordinates that are off here
 			placed:SetPosition(x, y)
 			record.x, record.y = x, y

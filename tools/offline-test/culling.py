@@ -300,6 +300,19 @@ class CullingTests(unittest.TestCase):
             assert(f:IsShown())
         """)
 
+    def test_world_map_questie_pins_take_their_positions(self):
+        self.lua.execute("""
+            map.pinPools.HereBeDragonsPinsTemplateQuestie = pool
+            local questieProvider = Provider()
+            SetupPins('HereBeDragonsQuestie-Pins-2.0', { worldmapProvider = questieProvider })
+            mapID = 947
+            local far = Add(.9, .9, questieProvider)
+            Cull(.5, .5, 2)
+            assert(not far:IsShown(), 'a world-map Questie pin outside the view is still shown')
+            Cull(.9, .9, 2)
+            assert(far:IsShown())
+        """)
+
     def test_shared_pool_release_cleans_all_library_copies(self):
         self.lua.execute("""
             local other = Provider()
