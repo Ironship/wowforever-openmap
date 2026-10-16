@@ -186,6 +186,9 @@ local function Rows()
 	local faction = ns.Safe.Call(UnitFactionGroup, "player")
 	local loaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
 	local questie = loaded and loaded("Questie")
+	-- rows the map can't offer right now (no Questie): kept, off and unclickable, their tooltip
+	-- saying why (and one line at login says it once - WorldMap.lua)
+	local NEED_QUESTIE = L["Needs Questie: its NPC and quest database isn't loaded."]
 	local rows = {
 		-- on the map
 		{ L["Places"], tab = "show" },
@@ -196,30 +199,39 @@ local function Rows()
 		optRow(L["Party and raid members"], "group", Icon("Spell_Holy_PrayerOfFortitude")),
 		optRow(L["Your drawings"], "sketchShown", Icon("INV_Feather_04")),
 	}
-	-- Questie's quest icons: its own "Enable Map Icons" setting, switched as its options do
-	if questie then
-		local function profile() return _G.Questie and Questie.db and Questie.db.profile end
-		rows[#rows + 1] = row(L["Questie icons"], "questie", { texture = "Interface\\GossipFrame\\AvailableQuestIcon" },
-			function() local p = profile() return p and p.enableMapIcons end,
-			function(v)
-				local p = profile()
-				local loader = _G.QuestieLoader
-				local quests = loader and loader.ImportModule and loader:ImportModule("QuestieQuest")
-				if not p or not quests or not quests.ToggleNotes then return end
-				p.enableMapIcons = v
-				quests:ToggleNotes(v)
-			end)
-	end
+	-- Questie's quest icons: its own "Enable Map Icons" setting, switched as its options do; without
+	-- Questie the row stays (off, disabled), so the menu says what's missing instead of hiding it
+	local function profile() return _G.Questie and Questie.db and Questie.db.profile end
+	local icons = row(L["Questie icons"], questie and "questie" or nil, { texture = "Interface\\GossipFrame\\AvailableQuestIcon" },
+		function() local p = profile() return p and p.enableMapIcons end,
+		function(v)
+			local p = profile()
+			local loader = _G.QuestieLoader
+			local quests = loader and loader.ImportModule and loader:ImportModule("QuestieQuest")
+			if not p or not quests or not quests.ToggleNotes then return end
+			p.enableMapIcons = v
+			quests:ToggleNotes(v)
+		end)
+	if not questie then icons.omNeeds = NEED_QUESTIE end
+	rows[#rows + 1] = icons
 	rows[#rows + 1] = { L["Dungeons"] }
 	rows[#rows + 1] = optRow(L["Level ranges"], "dungeonLevels", Icon("Spell_ChargePositive"))
 	rows[#rows + 1] = optRow(L["Dungeon bosses"], "dungeonBosses", Icon("INV_Misc_Bone_ElfSkull_01"))
-	if questie then rows[#rows + 1] = optRow(L["Dungeon quests (Questie)"], "dungeonQuests", { texture = "Interface\\GossipFrame\\ActiveQuestIcon" }) end
+	local dungeonQuests = optRow(L["Dungeon quests (Questie)"], "dungeonQuests", { texture = "Interface\\GossipFrame\\ActiveQuestIcon" })
+	if not questie then dungeonQuests.id = nil dungeonQuests.omNeeds = NEED_QUESTIE end
+	rows[#rows + 1] = dungeonQuests
 	rows[#rows + 1] = { L["Townsfolk"] }
 	local kinds = {}
 	for _, k in ipairs(mod.TOWNSFOLK or {}) do kinds[k.key] = k end
 	local function folk(label, key)
-		return row(label, "townsfolk." .. key, kinds[key] and kinds[key].look or Icon("INV_Misc_QuestionMark"),
-			function() return db.townsfolk[key] end, function(v) db.townsfolk[key] = v mod:RefreshTownsfolk() end)
+		local r = row(label, "townsfolk." .. key, kinds[key] and kinds[key].look or Icon("INV_Misc_QuestionMark"),
+			function() return db.townsfolk[key] end,
+			function(v)
+				if v and mod.QuestieMissing() then return end   -- (saved favourites from before: refuse, out loud)
+				db.townsfolk[key] = v mod:RefreshTownsfolk()
+			end)
+		if not questie then r.id = nil r.omNeeds = NEED_QUESTIE end
+		return r
 	end
 	for _, k in ipairs(mod.TOWNSFOLK or {}) do
 		if not k.rare and k.key ~= "spirit" then rows[#rows + 1] = folk(k.name, k.key) end
@@ -791,6 +803,12 @@ local function CheckBox(parent)
 	return cb
 end
 
+-- a row the map can't offer right now (no Questie): the whole line says why on hover
+local function RowTip(owner)
+	local row = owner.row
+	if row and row.omNeeds then Tip(owner, "ANCHOR_RIGHT", row[1], { row.omNeeds, 0.8, 0.8, 0.8 }) end
+end
+
 local ROW_H = 22
 local filling = false
 Fill = function()
@@ -860,6 +878,8 @@ Fill = function()
 				if not it then
 					it = CheckBox(checks)
 					it:SetScript("OnClick", function(self) self.row[3](self:GetChecked() and true or false) RefreshFavorites() end)
+					it:SetScript("OnEnter", function(self) RowTip(self) end)
+					it:SetScript("OnLeave", GameTooltip_Hide)
 					it.icon = checks:CreateTexture(nil, "ARTWORK")
 					it.icon:SetSize(16, 16)
 					it.icon:SetPoint("LEFT", it, "RIGHT", 4, 0)
@@ -872,10 +892,13 @@ Fill = function()
 					it.hit:SetPoint("LEFT", it.icon, "LEFT", -2, 0)
 					it.hit:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
 					it.hit:SetScript("OnClick", function() it:Click() end)
+					it.hit:SetScript("OnEnter", function(self) RowTip(self) end)
+					it.hit:SetScript("OnLeave", GameTooltip_Hide)
 					it.star = MakeStar(checks, function() Fill() RefreshFavorites() end)
 					checks.boxes[nb] = it
 				end
 				it.row = row
+				it.hit.row = row
 				it:ClearAllPoints()
 				it:SetPoint("TOPLEFT", x0, y - 1)
 				it.border:SetShown(SetIcon(it.icon, row.icon or Icon("INV_Misc_QuestionMark")))
@@ -883,6 +906,11 @@ Fill = function()
 				it.label:SetText(row[1])
 				it.label:Show()
 				it:SetChecked(row[2]() and true or false)
+				local off = row.omNeeds and true or false
+				it:SetEnabled(not off)
+				it.hit:SetEnabled(not off)
+				it.label:SetAlpha(off and 0.55 or 1)
+				it.icon:SetAlpha(off and 0.55 or 1)
 				it.hit:SetWidth(COL - 44)
 				SetStar(it.star, row.id)
 				it.star:ClearAllPoints()

@@ -4,6 +4,15 @@
 
 - **RareScanner:** its rare icons are lifted above the stitched map's art (they're made low on the
   canvas, under it), the way Leatrix Maps' icons already are.
+- **Without Questie,** the menu keeps its Questie rows (quest icons, dungeon quests, townsfolk,
+  rares) visible and greyed, with a tooltip saying what's missing; a dungeon's card says where its
+  quests would be; and one line at login says so - instead of those parts just being absent.
+- In combat the map's pin guard now covers every pin as it comes to the map, not only the ones the
+  map held when it opened: another addon's pins, an addon loaded later, or a pin made in combat no
+  longer block the map with an "action blocked" error, and a super-tracked pin's click handling
+  waits with the rest.
+- A HereBeDragons copy OpenMap can't recognize is left to place its pins the game's way - and said
+  once, after a few map opens - instead of being passed over in silence.
 
 ## v0.4.0-beta (2026-10-16)
 

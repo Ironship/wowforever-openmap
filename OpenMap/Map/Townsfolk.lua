@@ -52,6 +52,22 @@ local function Questie()
 	if ok and ok2 and db and db.NPCPointers and db.QueryNPCSingle and zones then return db, zones end
 end
 
+-- Questie at all: its loader carries the database. Without it there is nothing to wait for, so the
+-- kinds asked for go back off and it is said once - here, not after a minute of silence.
+function mod.QuestiePresent()
+	return _G.QuestieLoader ~= nil
+end
+
+local told
+function mod.QuestieMissing()
+	if mod.QuestiePresent() then return false end
+	if not told then
+		told = true
+		ns:Print("World map: Questie isn't loaded. Its quest icons, townsfolk, rares and dungeon quests aren't available.")
+	end
+	return true
+end
+
 local function PinEnter(pin)
 	local n = pin.data
 	GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
@@ -157,6 +173,11 @@ function mod:RefreshTownsfolk()
 		if set then S.SetPinSetOn(set, on) end
 	end
 	if #todo == 0 or building then return end
+	if mod.QuestieMissing() then
+		-- (nothing to wait for: back off, so the menu shows what's real; the line above says why)
+		for _, k in ipairs(todo) do self.db.townsfolk[k.key] = false end
+		return
+	end
 	building = true
 	for _, k in ipairs(todo) do built[k.key] = true end
 	Build(todo, function(ok)

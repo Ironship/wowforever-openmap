@@ -6,6 +6,9 @@ local _, ns = ...
 ns.MapChangelog = {
 	{ version = "Unreleased", date = "", heads = { }, items = {
 		"|cff6e2c0aRareScanner:|r its rare icons are lifted above the stitched map's art (they're made low on the canvas, under it), the way Leatrix Maps' icons already are.",
+		"|cff6e2c0aWithout Questie,|r the menu keeps its Questie rows (quest icons, dungeon quests, townsfolk, rares) visible and greyed, with a tooltip saying what's missing; a dungeon's card says where its quests would be; and one line at login says so - instead of those parts just being absent.",
+		"In combat the map's pin guard now covers every pin as it comes to the map, not only the ones the map held when it opened: another addon's pins, an addon loaded later, or a pin made in combat no longer block the map with an \"action blocked\" error, and a super-tracked pin's click handling waits with the rest.",
+		"A HereBeDragons copy OpenMap can't recognize is left to place its pins the game's way - and said once, after a few map opens - instead of being passed over in silence.",
 	} },
 	{ version = "v0.4.0-beta", date = "2026-10-16", heads = { [1] = "New", [11] = "Improved", [20] = "Fixed", }, items = {
 		"|cff6e2c0aDungeon maps.|r Click a dungeon's entrance for its own map, drawn from the game's own art (WoW Forever's map never shows it), right in the map window. Zoom with the wheel, drag to pan, and step through its floors with the arrows, the floor list or the side panel's Floors tab, which shows each floor as a small picture. Where several share an entrance you pick one; Blackrock Spire, Dire Maul and Scarlet Monastery are listed by wing, each opening on its own floor. Right-click, Escape or Back takes you back to the world where you were. 25 dungeons and raids have maps; WoW Forever's own new dungeons open on a blank page until the game has art for them.",

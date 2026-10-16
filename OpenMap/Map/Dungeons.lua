@@ -1421,14 +1421,19 @@ RefreshCard = function()
 		end
 	end
 	if open and mod.db.dungeonQuests then
-		EnsureQuests(RefreshCard)
-		local q = QuestLines(mapID, insts[1])
-		if q and #q > 0 then
-			if #lines > 0 then lines[#lines + 1] = " " end
-			lines[#lines + 1] = "|cffe6c27a" .. L["Quests"] .. "|r  |cff998866(Questie)|r"
-			for _, line in ipairs(q) do lines[#lines + 1] = line end
-		elseif scanning then
-			lines[#lines + 1] = "|cff998866" .. L["Reading Questie's quests..."] .. "|r"
+		if not Questie() then
+			-- (nothing to read: say it, as the side panel's quests tab already does, not vanish)
+			lines[#lines + 1] = "|cff998866" .. L["With Questie, the quests for this dungeon are listed here."] .. "|r"
+		else
+			EnsureQuests(RefreshCard)
+			local q = QuestLines(mapID, insts[1])
+			if q and #q > 0 then
+				if #lines > 0 then lines[#lines + 1] = " " end
+				lines[#lines + 1] = "|cffe6c27a" .. L["Quests"] .. "|r  |cff998866(Questie)|r"
+				for _, line in ipairs(q) do lines[#lines + 1] = line end
+			elseif scanning then
+				lines[#lines + 1] = "|cff998866" .. L["Reading Questie's quests..."] .. "|r"
+			end
 		end
 	end
 	-- other addons' sections (API.lua): a title and lines of their own, after ours

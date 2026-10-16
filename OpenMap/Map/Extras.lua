@@ -13,6 +13,7 @@
 local _, ns = ...
 local S = ns.MapStitch
 local mod = ns:GetModule("worldmap")
+local L = ns.L
 
 local d = mod.defaults
 d.coords = true
@@ -322,11 +323,28 @@ local PIN_LIBS = {
 }
 local DEFAULT_TEMPLATE = "HereBeDragonsPinsTemplate"
 
+-- the pin template a copy actually registered: its own, or - a copy whose template name this doesn't
+-- know - the one pool here that looks like HereBeDragons' and is (not) Questie's
+local function PoolTemplate(spec)
+	local pools = map.pinPools
+	if not pools then return end
+	if pools[spec.template] then return spec.template end
+	local wantQuestie = spec.questie and true or false
+	for template in pairs(pools) do
+		if type(template) == "string" and template:find("HereBeDragons", 1, true)
+			and ((template:find("Questie", 1, true) ~= nil) == wantQuestie) then
+			return template
+		end
+	end
+end
+
 local function SetUpPins(name, pins)
 	local spec = PIN_LIBS[name] or { template = DEFAULT_TEMPLATE }
 	local provider = pins and pins.worldmapProvider
-	if not provider or not provider.HandlePin or provider.openmapPins then return end
-	if not (map.pinPools and map.pinPools[spec.template]) then return end   -- (a copy this doesn't know the pins of)
+	if type(provider) ~= "table" or type(provider.HandlePin) ~= "function" then return "unknown" end
+	if provider.openmapPins then return "done" end
+	local template = PoolTemplate(spec)
+	if not template then return "waiting" end   -- (its pool not registered (yet): tried again as the map opens)
 	provider.openmapPins = true
 	local count = spec.questie and questie or { placed = 0, ours = 0, moved = 0 }
 	if spec.questie then questie.pins = pins end
@@ -369,24 +387,50 @@ local function SetUpPins(name, pins)
 		local profile = spec.questie and _G.Questie and Questie.db and Questie.db.profile
 		if profile and profile.hideIconsOnContinents and info.mapType == Enum.UIMapType.Continent then return end
 		if x < -NEAR or x > 1 + NEAR or y < -NEAR or y > 1 + NEAR then return end
-		self:GetMap():AcquirePin(spec.template, icon, x, y, data.frameLevelType)
+		self:GetMap():AcquirePin(template, icon, x, y, data.frameLevelType)
 		if spec.questie then Lift(icon) end
 		count.ours = count.ours + 1
 	end
 	-- (counted afresh each time the map changes: HereBeDragons rebuilds its pins then)
 	local Refresh = provider.RefreshAllData
-	provider.RefreshAllData = function(self, ...)
-		local before = self:GetMap() and self:GetMap():GetMapID()
-		if before ~= count.mapID then count.placed, count.ours, count.moved, count.mapID = 0, 0, 0, before end
-		return Refresh(self, ...)
+	if type(Refresh) == "function" then   -- (a copy without it: nothing calls it, nothing to wrap)
+		provider.RefreshAllData = function(self, ...)
+			local before = self:GetMap() and self:GetMap():GetMapID()
+			if before ~= count.mapID then count.placed, count.ours, count.moved, count.mapID = 0, 0, 0, before end
+			return Refresh(self, ...)
+		end
 	end
+	return "done"
 end
 
 -- every copy of the pins library loaded so far (an addon loaded later: next time the map opens)
+-- one this can't take over: left to place its pins the game's way, and said once (after a few map
+-- opens) rather than passed over in silence
+local pending = {}              -- library name -> map opens tried
+local told = {}                 -- library name -> true (its line has been said)
+local OPEN_TRIES = 3
+
+local function Tell(name)
+	if told[name] then return end
+	told[name] = true
+	ns:Print(L["A map addon brings its own HereBeDragons (%s), which OpenMap doesn't know: its pins keep the game's own placement."], name)
+end
+
 local function SetUpAllPins()
 	if not LibStub or not LibStub.IterateLibraries then return end
 	for name, lib in LibStub:IterateLibraries() do
-		if type(name) == "string" and name:match("^HereBeDragons.*%-Pins%-2%.0$") then SetUpPins(name, lib) end
+		if type(name) == "string" and name:match("^HereBeDragons.*%-Pins%-2%.0$") then
+			local state = SetUpPins(name, lib)
+			if state == "unknown" then
+				Tell(name)                                  -- (a shape this can never take over)
+			elseif state == "waiting" then
+				local tries = (pending[name] or 0) + 1
+				pending[name] = tries
+				if tries > OPEN_TRIES then Tell(name) end
+			else
+				pending[name] = nil
+			end
+		end
 	end
 end
 

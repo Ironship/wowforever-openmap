@@ -896,6 +896,9 @@ function mod:OnEnable()
 	elseif EventUtil and EventUtil.ContinueOnAddOnLoaded then
 		EventUtil.ContinueOnAddOnLoaded("Blizzard_WorldMap", Setup)
 	end
+	-- one line, once a session: a map whose quest icons, townsfolk and dungeon quests can't show
+	-- should say so before it just looks empty
+	if mod.QuestieMissing then mod.QuestieMissing() end
 end
 
 -- which pin sets each option shows
@@ -954,6 +957,8 @@ function mod:Diag()
 	if registered then
 		ns:Print("Questie: %d map icons, %d on this map (%d placed by Questie, %d of those moved to Forever's positions, %d placed by OpenMap), map %d.",
 			registered, shown, placed, moved, ours, map:GetMapID() or 0)
+	elseif mod.QuestiePresent and not mod.QuestiePresent() then
+		ns:Print("Questie: not loaded - quest icons, townsfolk, rares and dungeon quests are off.")
 	end
 	local cv = S.closeView or {}
 	ns:Print("Up close: zoom %.1f, softening %.0f%%, minimap %.0f%% (%d tiles, %d in the gaps); %d view updates, the last %.1fs ago; %.2f ms each (worst %.1f).",
