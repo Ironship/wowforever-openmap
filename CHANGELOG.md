@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- "When reopening the map" replaces "Reopen where you left off" with one choice:
+  center on the player, always restore the previous view (even after changing zones), or restore
+  it only while the player is still in view (including across zone boundaries).
+  The previous same-zone setting becomes "Always remember"; disabled restoration
+  stays player-centered. With "Remember while visible", leaving the saved view
+  opens the map on the player.
+- Middle-click the map to center on the player without changing the current zoom.
+
 ## v0.3.0-beta (2026-10-14)
 
 - "Minimap detail from" (a slider in the menu, under Deepest zoom, and in Options' Up close) sets how

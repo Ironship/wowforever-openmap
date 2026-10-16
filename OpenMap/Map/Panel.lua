@@ -125,7 +125,7 @@ end
 -- right = true (it takes right-clicks itself) }
 local function Actions()
 	local list = {
-		{ L["Find me"], id = "find", icon = Icon("Ability_Tracking"), tip = L["Glide to where you are."],
+		{ L["Find me"], id = "find", icon = Icon("Ability_Tracking"), tip = L["Glide to where you are. Middle-click the map to center on you at the current zoom."],
 			run = function() mod:FindMe() end },
 		{ L["Drop a pin"], id = "pin", icon = Icon("Ability_Hunter_SniperShot"),
 			tip = L["Click, then click the map to drop a pin (Ctrl-click the map does it any time). Right-click: remove the pin."],
@@ -208,7 +208,14 @@ local function Rows()
 			function(v) db.unexplored = v and mode[1] or "show" mod:Refresh() end)
 	end
 	rows[#rows + 1] = optRow(L["Follow the view"], "autoSwitch", Icon("Ability_Hunter_Pathfinding"))
-	rows[#rows + 1] = optRow(L["Reopen where you left off"], "rememberView", Icon("INV_Misc_Rune_01"))
+	rows[#rows + 1] = { L["Reopen map (choose one)"] }
+	for _, choice in ipairs({ { "player", L["Center on player"] }, { "always", L["Always remember"] },
+		{ "visible", L["Remember while visible"] } }) do
+		local mode = choice[1]
+		rows[#rows + 1] = row(choice[2], "reopenView." .. mode, Icon("INV_Misc_Rune_01"),
+			function() return mod.GetReopenView() == mode end,
+			function() db.reopenView = mode mod:Refresh() end)
+	end
 	rows[#rows + 1] = { L["Up close"] }
 	rows[#rows + 1] = optRow(L["Minimap detail"], "minimap", Icon("Spell_Nature_FarSight"))
 	rows[#rows + 1] = optRow(L["Minimap in the gaps"], "gapMinimap", Icon("INV_Misc_Map_01"))

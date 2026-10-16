@@ -712,6 +712,10 @@ local function Setup()
 	sc.CalculateScrollExtentsAtScale = Extents(sc.CalculateScrollExtentsAtScale)
 	sc:HookScript("OnMouseWheel", OnMouseWheel)
 	sc:HookScript("OnMouseDown", OnGrab)
+	-- Listen directly: Blizzard's canvas click dispatcher only tracks left/right buttons.
+	sc:HookScript("OnMouseUp", function(_, button)
+		if active and button == "MiddleButton" then mod:FindMe(true) end
+	end)
 	sc:HookScript("OnUpdate", Animate)
 	-- the gamepad (Forever's gamepad mode): its zoom stick is ours on the stitched map (PadZoom);
 	-- its A (Blizzard's icons under the cursor, then this) presses OpenMap's control or icon under
@@ -823,6 +827,10 @@ end
 -- the gamepad's cursor (screen px) while it's the one in use on the map, else nil
 function mod.PadCursor() if sc then return PadCursor() end end
 mod.ToWorld = function(mapID, x, y) return ToWorld(mapID, x, y) end
+function mod.ViewHalfExtents(zoom)
+	local pu, pv = PerPx(zoom)
+	return sc:GetWidth() / 2 * pu, sc:GetHeight() / 2 * pv
+end
 -- for Nav.lua: glide / jump to a world point (normalized) at a zoom; the zoom where a map fits
 function mod.Glide(u, v, zoom) if active then GlideTo(u, v, zoom) end end
 function mod.ShowNow(u, v, zoom) if active then anim = nil ShowWorld(u, v, Clamp(zoom, 1, MaxZoomAt(u, v))) userMoved = true end end

@@ -1,8 +1,8 @@
 --------------------------------------------------------------------------------
 -- Getting around the map:
 --   find me      a button that glides to where you are
---   remember     the map reopens where you left it, while you're still in the
---                same zone (somewhere new, it opens on you, as Blizzard's does)
+--   reopen       choose player-centred, always remember, or remember
+--                only while the player is still inside the previous view
 --   waypoints    Ctrl-click the map to drop Blizzard's map pin there (and a
 --                TomTom arrow, if TomTom is on); click the pin to clear it
 --   search       type a zone, city, dungeon or flight master and glide to it
@@ -17,7 +17,6 @@ local mod = ns:GetModule("worldmap")
 local Look, Safe, L = ns.Look, ns.Safe, ns.L
 
 local d = mod.defaults
-d.rememberView = true
 d.group = true
 
 local map, sc
@@ -39,7 +38,7 @@ end
 -- Find me, and reopening where you left off
 --------------------------------------------------------------------------------
 
-function mod:FindMe()
+function mod:FindMe(keepZoom)
 	if not mod.IsStitched() then return end
 	local u, v, best = UnitWorld("player")
 	if not u then
@@ -56,27 +55,51 @@ function mod:FindMe()
 		return
 	end
 	local _, _, zoom = mod.ViewNow()
-	mod.Glide(u, v, math.max(zoom, mod.FitZoom(best)))
+	mod.Glide(u, v, keepZoom and zoom or math.max(zoom, mod.FitZoom(best)))
 end
 
 local saved                     -- { u, v, zoom, zone, host } when the map closed
+
+function mod.GetReopenView()
+	-- Preserve existing preferences, including the earlier two-checkbox setting.
+	-- No default for reopenView: it would hide the old preference before migration.
+	if not mod.db.reopenView then
+		mod.db.reopenView = mod.db.rememberViewInView and "visible"
+			or (mod.db.rememberView == false and "player" or "always")
+	end
+	if mod.db.reopenView == "zone" then mod.db.reopenView = "always" end
+	mod.db.rememberView, mod.db.rememberViewInView = nil, nil
+	return mod.db.reopenView
+end
 
 function mod:OnMapHidden()
 	local u, v, zoom = mod.ViewNow()
 	if u then saved = { u, v, zoom, Safe.Call(C_Map.GetBestMapForUnit, "player"), mod.HostMap() } end
 end
 
--- the view to reopen on, as Blizzard puts up mapID: where the map was when it closed, unless
--- you've moved on since. Only for the map Blizzard opens on (yours, or the one it closed on):
+-- the view to reopen on: restore the previous view when the selected condition holds,
+-- otherwise centre on the player. Only for the map Blizzard opens on:
 -- a map put up for something else (a quest's zone, from the quest log or the tracker) shows as
 -- Blizzard shows it, or the view would move the map back and Blizzard would close the quest.
 -- (No mapID: whether there's a view to reopen on at all)
 function mod.SavedView(mapID)
-	if not saved or not mod.db.rememberView then return end
-	if Safe.Call(C_Map.GetBestMapForUnit, "player") ~= saved[4] then return end   -- you've moved on: open on you
-	if mapID and mapID ~= saved[5] and mapID ~= saved[4]
-		and mapID ~= Safe.Call(MapUtil and MapUtil.GetDisplayableMapForPlayer) then return end
-	return saved[1], saved[2], saved[3]
+	local mode = mod.GetReopenView()
+	local zone = Safe.Call(C_Map.GetBestMapForUnit, "player")
+	local restore = saved and mode == "always"
+	if saved and mode == "visible" then
+		local u, v = UnitWorld("player")
+		if not u then return end
+		local hu, hv = mod.ViewHalfExtents(saved[3])
+		restore = math.abs(u - saved[1]) <= hu and math.abs(v - saved[2]) <= hv
+	end
+	local display = Safe.Call(MapUtil and MapUtil.GetDisplayableMapForPlayer)
+	if restore then
+		if mapID and mapID ~= saved[5] and mapID ~= zone and mapID ~= display then return end
+		return saved[1], saved[2], saved[3]
+	end
+	if mapID and mapID ~= zone and mapID ~= display then return end
+	local u, v, best = UnitWorld("player")
+	if u then return u, v, mod.FitZoom(best) end
 end
 
 function mod:OnMapShown()
@@ -406,8 +429,11 @@ function mod:RefreshNav()
 end
 
 function mod:NavOptions(opts, get, set, off)
-	opts.rememberView = { type = "toggle", name = L["Reopen where you left off"], order = 11, width = "full", get = get, set = set, disabled = off,
-		desc = L["While you're still in the same zone, the map reopens on what you were looking at. Somewhere new, it opens on you."] }
+	opts.reopenView = { type = "select", name = L["When reopening the map"], order = 11,
+		get = mod.GetReopenView, set = set, disabled = off,
+		values = { player = L["Center on player"], always = L["Always remember"],
+			visible = L["Remember while visible"] }, sorting = { "player", "always", "visible" },
+		desc = L["Choose one behavior. Center on player: always open on you. Always remember: restore your previous position and zoom, even after changing zones. Remember while visible: restore only if your current location is inside the previous view, even across zone boundaries. Otherwise, open on you. Maps opened for a quest still show the quest's area."] }
 	opts.group = { type = "toggle", name = L["Party and raid members"], order = 35, get = get, set = set, disabled = off,
 		desc = L["Class-coloured dots for your group anywhere on the stitched map."] }
 end

@@ -39,7 +39,9 @@ Write down anything odd, with `/openmap status` output, or use the map's own
 ## 5. Getting around (3 min)
 - [ ] Search box: type "gadg", click Gadgetzan → glides there with a marker. Type "deadm" → the Deadmines entrance.
 - [ ] Find me button: glides to you.
-- [ ] Close the map and reopen it: same view. Move to another zone and reopen: it opens on you.
+- [ ] "When reopening the map" is one dropdown: Center on player / Always remember / Remember while visible. Only one can be selected. Existing enabled/disabled preferences become always remember / center on player.
+- [ ] Always remember: close and reopen for the same position and zoom, even after changing zones or moving outside the saved view. Remember while visible: cross a zone boundary while still inside the saved view and reopen for the same position and zoom; move outside that view (also within the same zone) and reopen for a view on you. Center on player: always open on you. Opening a quest's map still shows its zone.
+- [ ] Pan away from the player, then middle-click the map: it centers on you at the same zoom. Left-click, right-click and Ctrl-click still work; dungeon maps behave as before.
 - [ ] Ctrl-click the map: a map pin appears (and the navigation arrow). Click the pin: it's gone. With TomTom on, Ctrl-click also adds a TomTom arrow.
 - [ ] In a group: party members show as class-coloured dots, also on zones the map isn't currently on.
 - [ ] Drag the map's title bar: it moves. Drag the bottom-right corner, then the bottom-left one: it resizes, the other side staying put. `/reload`, reopen: same place and size. Maximize: the grips and drag bar go away; un-maximize: back where it was.

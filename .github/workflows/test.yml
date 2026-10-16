@@ -22,5 +22,6 @@ jobs:
       - run: python tools/offline-test/run.py plain
       - run: python tools/offline-test/run.py combat
       - run: python tools/offline-test/run.py secret
+      - run: python tools/offline-test/navigation.py
       - name: The tools at least compile
         run: python -m compileall -q tools
