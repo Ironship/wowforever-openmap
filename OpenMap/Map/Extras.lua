@@ -292,6 +292,8 @@ end
 -- in the wrong place, and it never shows a neighbouring zone's pins on a zone. So there,
 -- every pin is placed (or moved) here, from the map it belongs to (`uiMapID`, `mapX`,
 -- `mapY`) through the same rectangles, following Questie's own rules for where it may show.
+-- And of those pins, only what's in view is shown: a zone or continent map carries every
+-- zone's pins, and the ones scrolled away are hidden, so they cost nothing (CullPins).
 --------------------------------------------------------------------------------
 
 local SHOW_CURRENT = 0                  -- HBD_PINS_WORLDMAP_SHOW_CURRENT: only on its own map
@@ -338,6 +340,67 @@ local function PoolTemplate(spec)
 	end
 end
 
+-- The pins the takeover places are on the map whether or not they're anywhere near the view:
+-- Questie alone keeps hundreds, and a continent map brings every zone's along. Hidden pins cost
+-- nothing (the way S.Cull keeps OpenMap's own), so every placement is written down, and on a view
+-- change the ones outside the view - with a margin for what a pan would show next - are hidden,
+-- and the ones the view has come back to shown. Only frames this file hid are ever shown again:
+-- an owner's own Hide stands; a record's `hidden` is the only state touched, so a still view's
+-- pass does nothing.
+local CULL_MARGIN = 0.2         -- of the view's size, on every side: pins this far out are still shown
+local recordSets = {}           -- each taken-over copy's records: frame -> { x, y, moved, hidden }
+
+local function CullPins(u, v, hu, hv)
+	if not map then return end
+	if not mod.IsStitched() then
+		-- (not the stitched map any more: what was hidden goes back up, and the map change
+		-- rebuilds the library's pins anyway)
+		for _, records in ipairs(recordSets) do
+			for frame, r in pairs(records) do
+				if r.hidden then pcall(frame.Show, frame) end
+				records[frame] = nil
+			end
+		end
+		return
+	end
+	local mapID = map:GetMapID()
+	if not map:IsShown() or not mapID or not S.Rect(mapID) then return end
+	local w, h = hu * 2 * CULL_MARGIN, hv * 2 * CULL_MARGIN
+	local x0, y0 = mod.FromWorld(mapID, u - hu - w, v - hv - h)
+	local x1, y1 = mod.FromWorld(mapID, u + hu + w, v + hv + h)
+	for _, records in ipairs(recordSets) do
+		for frame, r in pairs(records) do
+			if r.x >= x0 and r.x <= x1 and r.y >= y0 and r.y <= y1 then
+				if r.hidden then
+					r.hidden = nil
+					pcall(frame.Show, frame)
+				end
+			elseif not r.hidden then
+				r.hidden = true
+				pcall(frame.Hide, frame)
+			end
+		end
+	end
+end
+
+-- the cull for the view as it is: a refresh has just placed its pins, and no pan or zoom runs
+-- for that (SetView would cull, but it only runs on the map's own view updates)
+local function CullNow()
+	if not mod.ViewNow then return end
+	local u, v, zoom = mod.ViewNow()
+	if not u then return end
+	CullPins(u, v, mod.ViewHalfExtents(zoom))
+end
+
+-- the view changes (WorldMap.lua calls S.SetView on every pan, zoom and map update): cull.
+-- hooksecurefunc keeps the call-through whole; set up once, next to the takeover.
+local cullHooked = false
+local function SetUpCull()
+	if cullHooked or type(S.SetView) ~= "function" then return end
+	cullHooked = true
+	hooksecurefunc(S, "SetView", CullPins)
+end
+
 local function SetUpPins(name, pins)
 	local spec = PIN_LIBS[name] or { template = DEFAULT_TEMPLATE }
 	local provider = pins and pins.worldmapProvider
@@ -359,6 +422,10 @@ local function SetUpPins(name, pins)
 			return add(lib, ref, icon, uiMapID, x, y, ...)
 		end
 	end
+	-- where this copy's pins are on the host map, and whether this file hid them (weak keys:
+	-- a frame nothing else holds drops out; the ones a pool keeps are cleared on a map change)
+	local records = setmetatable({}, { __mode = "k" })
+	recordSets[#recordSets + 1] = records
 	local HandlePin = provider.HandlePin
 	provider.HandlePin = function(self, icon, data, ...)
 		HandlePin(self, icon, data, ...)
@@ -377,6 +444,7 @@ local function SetUpPins(name, pins)
 		local x, y = mod.FromWorld(mapID, l + mx * (r - l), t + my * (b - t))
 		if placed then                                      -- placed, but from coordinates that are off here
 			placed:SetPosition(x, y)
+			records[placed] = { x = x, y = y, moved = true }
 			count.moved = count.moved + 1
 			return
 		end
@@ -387,7 +455,8 @@ local function SetUpPins(name, pins)
 		local profile = spec.questie and _G.Questie and Questie.db and Questie.db.profile
 		if profile and profile.hideIconsOnContinents and info.mapType == Enum.UIMapType.Continent then return end
 		if x < -NEAR or x > 1 + NEAR or y < -NEAR or y > 1 + NEAR then return end
-		self:GetMap():AcquirePin(template, icon, x, y, data.frameLevelType)
+		local pin = self:GetMap():AcquirePin(template, icon, x, y, data.frameLevelType)
+		if pin then records[pin] = { x = x, y = y, moved = false } end
 		if spec.questie then Lift(icon) end
 		count.ours = count.ours + 1
 	end
@@ -396,8 +465,17 @@ local function SetUpPins(name, pins)
 	if type(Refresh) == "function" then   -- (a copy without it: nothing calls it, nothing to wrap)
 		provider.RefreshAllData = function(self, ...)
 			local before = self:GetMap() and self:GetMap():GetMapID()
-			if before ~= count.mapID then count.placed, count.ours, count.moved, count.mapID = 0, 0, 0, before end
-			return Refresh(self, ...)
+			if before ~= count.mapID then
+				count.placed, count.ours, count.moved, count.mapID = 0, 0, 0, before
+				-- (another map: what was written down is in the old map's space, and the pins
+				-- are placed again below. On the same map a refresh may be skipped whole
+				-- (Questie's is, without forceUpdate): the records must stand through it, or
+				-- pins this file hid would never be shown again)
+				for frame in pairs(records) do records[frame] = nil end
+			end
+			local out = { Refresh(self, ...) }
+			CullNow()   -- (nothing culls the pins a refresh has just placed until the view moves)
+			return unpack(out)
 		end
 	end
 	return "done"
@@ -487,6 +565,7 @@ function mod:SetupExtras(worldMap)
 	map:HookScript("OnHide", function() fader:Hide() faded = 1 map:SetAlpha(1) end)
 	SetUpAllPins()
 	map:HookScript("OnShow", SetUpAllPins)            -- (a copy an addon loaded since brought)
+	SetUpCull()                                       -- (the taken-over pins are culled to the view)
 	ApplyExtras()
 	-- (before the game saves its settings: the player's own back; Compat.lua's reassertion stands down)
 	ns.RegisterEvent(cvarOwner, "PLAYER_LOGOUT", function()

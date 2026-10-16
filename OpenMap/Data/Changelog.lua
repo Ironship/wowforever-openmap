@@ -5,6 +5,8 @@ local _, ns = ...
 
 ns.MapChangelog = {
 	{ version = "Unreleased", date = "", heads = { }, items = {
+		"|cff6e2c0aQuestie's and other HereBeDragons addons' pins|r on the stitched map are shown for what's in view: pins scrolled away cost nothing (the bench's \"pins\" part shows the drop), so a map with hundreds of them - a continent carrying every zone's - stays smooth.",
+		"|cff6e2c0aUnexplored areas|r can be shaded as much or as little as you like: a slider (\"Unexplored shading\", in the menu's Look tab and the options) sets how strongly the land you haven't found is darkened, from nothing (it reads as explored) to the map's own strength and beyond. It works with \"Darken unexplored areas\" on, and comes at the strength the map already darkens them with.",
 		"|cff6e2c0aRareScanner:|r its rare icons are lifted above the stitched map's art (they're made low on the canvas, under it), the way Leatrix Maps' icons already are.",
 		"|cff6e2c0aWithout Questie,|r the menu keeps its Questie rows (quest icons, dungeon quests, townsfolk, rares) visible and greyed, with a tooltip saying what's missing; a dungeon's card says where its quests would be; and one line at login says so - instead of those parts just being absent.",
 		"In combat the map's pin guard now covers every pin as it comes to the map, not only the ones the map held when it opened: another addon's pins, an addon loaded later, or a pin made in combat no longer block the map with an \"action blocked\" error, and a super-tracked pin's click handling waits with the rest.",

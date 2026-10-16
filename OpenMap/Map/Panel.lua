@@ -1310,6 +1310,8 @@ function mod:SetupPanel(worldMap)
 		{ "windowScale", L["Map size"], Icon("INV_Misc_Spyglass_02") },
 		{ "colorMatch", L["Colour matching"], Icon("INV_Misc_Map_01") },
 		{ "desaturate", L["Take colour out"], Icon("Spell_Shadow_Twilight") },
+		{ "shade", L["Unexplored shading"], Icon("Ability_Vanish"),
+			enabled = function() return mod.db.unexplored == "dim" end },
 		{ "minimapMix", L["Minimap strength"], Icon("Spell_Nature_FarSight") },
 		{ "moveFade", L["Fade while moving"], Icon("Ability_Stealth") },
 	}) do
@@ -1318,6 +1320,7 @@ function mod:SetupPanel(worldMap)
 			local r = SliderRow(sliders, COL, { label = s[2], icon = s[3], range = { o.min, o.max, o.step },
 				get = function() return mod:Options()[key].get({ key }) end,
 				set = function(v) mod:Options()[key].set({ key }, v) end,
+				enabled = s.enabled or o.enabled,
 				fmt = o.isPercent and "%d%%" or "%.2f", show = o.isPercent and function(v) return math.floor(v * 100 + 0.5) end or nil,
 				tip = o.desc or s[2] })
 			made[key] = r
@@ -1326,7 +1329,7 @@ function mod:SetupPanel(worldMap)
 	end
 	-- each column's, top down
 	local height = 0
-	for col, list in ipairs({ { "zoom", "windowScale", "colorMatch", "desaturate" }, { "from", "minimapMix", "opacity", "moveFade" } }) do
+	for col, list in ipairs({ { "zoom", "windowScale", "colorMatch", "desaturate", "shade" }, { "from", "minimapMix", "opacity", "moveFade" } }) do
 		local y = -22
 		for _, key in ipairs(list) do
 			local r = made[key]

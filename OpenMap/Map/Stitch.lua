@@ -1825,14 +1825,19 @@ end)
 -- zones: mapID -> { frame, land, p, all = texture, rim = texture, dim = frame, pieces = { piece -> { copies } } },
 -- or false. REACH: world units round a zone its border share covers (render.py's BORDER_REACH).
 -- DIM: an unexplored piece's colour, { r, g, b (multipliers), desaturation }: near the shade's (UNDISCOVERED
--- at its alpha over the art), as a texture can only multiply (render.py's DIM)
-local Shade = { zones = {}, on = false, REACH = 12, DIM = { 0.38, 0.39, 0.43, 0.25 } }
+-- at its alpha over the art), as a texture can only multiply (render.py's DIM). strength: the shade's alpha
+-- now (the "Unexplored shading" slider: UNDISCOVERED[4] is how the map comes), made: every shade and rim
+-- texture, for it to take
+local Shade = { zones = {}, on = false, strength = UNDISCOVERED[4], made = {}, REACH = 12,
+	DIM = { 0.38, 0.39, 0.43, 0.25 } }
 
 function Shade.Texture(z, x, y, w, h)
 	local tex = z.frame:CreateTexture(nil, "ARTWORK")
-	tex:SetColorTexture(UNDISCOVERED[1], UNDISCOVERED[2], UNDISCOVERED[3], UNDISCOVERED[4])
+	tex:SetColorTexture(UNDISCOVERED[1], UNDISCOVERED[2], UNDISCOVERED[3])
+	tex:SetAlpha(Shade.strength)   -- (the region's: SetShadeStrength moves this one; an alpha in the colour would multiply with it)
 	Record(tex, x, y, w, h)
 	tex:AddMaskTexture(z.land)
+	Shade.made[#Shade.made + 1] = tex
 	return tex
 end
 
@@ -1858,9 +1863,11 @@ function Shade.Zone(mapID)
 			share:SetTexture(TEX .. "MapZoneBorder\\" .. mapID, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
 			Record(share, x, y, w, h)
 			z.rim = frame:CreateTexture(nil, "ARTWORK")
-			z.rim:SetColorTexture(UNDISCOVERED[1], UNDISCOVERED[2], UNDISCOVERED[3], UNDISCOVERED[4])
+			z.rim:SetColorTexture(UNDISCOVERED[1], UNDISCOVERED[2], UNDISCOVERED[3])
+			z.rim:SetAlpha(Shade.strength)
 			Record(z.rim, x, y, w, h)
 			z.rim:AddMaskTexture(share)
+			Shade.made[#Shade.made + 1] = z.rim
 		else
 			frame:Hide()
 		end
@@ -1918,13 +1925,15 @@ end
 
 -- the copies coloured for whether their piece is explored, at the colour settings now: the explored
 -- as the overlays are, over the unexplored, which are darkened (DIM) on the zone's land alone (the sea
--- it paints left as it is) and without their colour-match copy (a texture takes three masks)
+-- it paints left as it is) and without their colour-match copy (a texture takes three masks). They take
+-- the shade slider (Shade.strength) as an alpha: 1 at the default and above, less below
 function Shade.Colour(mapID, z)
 	local strength, desat = gradeNow[1], gradeNow[2]
+	local shade = UNDISCOVERED[4] > 0 and math.min(1, Shade.strength / UNDISCOVERED[4]) or 0
 	-- (only when the settings or the pieces explored have changed: this runs with each cull)
 	local un = 0
 	for piece in pairs(z.pieces) do if piece.unexplored then un = un + 1 end end
-	local done = strength .. ":" .. desat .. ":" .. un
+	local done = strength .. ":" .. desat .. ":" .. un .. ":" .. shade
 	if z.coloured == done then return end
 	z.coloured = done
 	local m = ns.MapGrade and ns.MapGrade[mapID]
@@ -1940,11 +1949,24 @@ function Shade.Colour(mapID, z)
 				e.landed = dark
 				if dark then tex:AddMaskTexture(z.dimLand) else tex:RemoveMaskTexture(z.dimLand) end
 			end
-			tex:SetVertexColor(r, g, b, 1)
+			tex:SetVertexColor(r, g, b, shade)
 			tex:SetDesaturation(dark and math.max(desat, D[4]) or desat)
 			tex:SetDrawLayer("ARTWORK", (dark and 0 or 2) + (e.twin and 1 or 0))
 			tex:SetShown(not (e.twin and (dark or strength <= 0)))
 		end
+	end
+end
+
+-- the "Unexplored shading" slider (WorldMap.lua's Refresh runs this with every setting change):
+-- how strongly the shades darken. Every shade and rim texture takes it as its alpha, and the zones
+-- whose darkened copies are up (an explored zone with some unexplored land) have them follow
+function S.SetShadeStrength(v)
+	v = tonumber(v) or UNDISCOVERED[4]
+	if v < 0 then v = 0 elseif v > 1 then v = 1 end
+	Shade.strength = v
+	for _, tex in ipairs(Shade.made) do tex:SetAlpha(v) end
+	for mapID, z in pairs(Shade.zones) do
+		if z and z.dim and z.dim:IsShown() then Shade.Colour(mapID, z) end
 	end
 end
 

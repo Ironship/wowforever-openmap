@@ -29,6 +29,7 @@ local mod = ns:NewModule("worldmap", {
 		colorMatch = 1,         -- how far zone borders move to the shared palette
 		desaturate = 0.1,
 		unexplored = "show",    -- areas not explored yet: "show", "dim" or "hide"
+		shade = 0.62,           -- how strongly unexplored areas are shaded ("dim"): 0 none .. 1 the shade's fullest
 		maxZoom = 48,           -- x the whole-world view (MAX_ZOOM: what it can be set to)
 	},
 })
@@ -919,6 +920,7 @@ function mod:Refresh()
 		local set = S.GetPinSet(key)
 		if set then S.SetPinSetOn(set, self.db[opt]) end
 	end
+	if S.SetShadeStrength then S.SetShadeStrength(self.db.shade) end
 	S.ApplyGrade(self.db.colorMatch, self.db.desaturate, self.db.unexplored)
 	ApplyZoom()
 	if self.RefreshExtras then self.RefreshExtras() end
@@ -1028,6 +1030,9 @@ function mod:Options()
 		unexplored = { type = "select", name = "Unexplored areas", order = 23, get = get, set = set, disabled = off,
 			values = { show = "Show", dim = "Darken", hide = "Hide" }, sorting = { "show", "dim", "hide" },
 			desc = "Areas you haven't explored yet: shown as they are, darkened and cooled (and a zone you haven't found at all darkened from every zoom, the continents' too), or hidden like Blizzard's own map (blank parchment until you get there)." },
+		shade = { type = "range", name = "Unexplored shading", order = 23.5, min = 0, max = 1, step = 0.05, isPercent = true,
+			get = get, set = set, disabled = off,
+			desc = "How strongly areas you haven't explored are shaded; 0 shows them as if explored, the default is how the map comes, higher darkens further." },
 		maxZoom = { type = "range", name = "Deepest zoom", order = 24, min = MAX_ZOOM[1], max = MAX_ZOOM[2], step = MAX_ZOOM[3],
 			get = get, set = function(_, v) mod.SetMaxZoom(v) if mod.RefreshPanel then mod:RefreshPanel() end end, disabled = off,
 			desc = "How far in the map zooms, in times the whole-world view (cities go half as far again). Past about 48 the art is only enlarged." },
