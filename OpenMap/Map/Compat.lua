@@ -7,6 +7,8 @@
 --     approach and dungeon maps (over it, catching clicks)
 --   * Leatrix Maps' icons (its points of interest: dungeons, flight points, boats, portals ...) are
 --     lifted above the stitched art (they're made at a fixed low frame level on the canvas, under it)
+--   * RareScanner's rare icons, also made low on the canvas (its map frame at canvas level + 10),
+--     are lifted above the stitched art the same way
 --   * their view changes (zoom remembered per map, keep centred, a jump into a cave) and their
 --     zoom steps past OpenMap's deepest don't apply there (WorldMap.lua)
 --   * the zone label, the coordinates CVars and the game's map fade are set again after theirs:
@@ -56,6 +58,24 @@ local function LeatrixPins()
 	end
 end
 
+-- RareScanner's rare icons: its map frame is a plain frame on the canvas, made at canvas level + 10
+-- (its pins at + 100 of that), so under the stitched art's. Lifted above it while stitched, as
+-- Leatrix's are; pins made later hang off the lifted frame and come out above it themselves.
+local function RareScannerPins()
+	local top = S.artTop
+	if not top then return end
+	local canvas = map:GetCanvas()
+	local made = canvas:GetFrameLevel() + 10           -- (the unnamed frame it places on the canvas)
+	for _, f in ipairs({ canvas:GetChildren() }) do
+		if not f:GetName() and not f.isLeaMapsPin and f:GetFrameLevel() == made then
+			f:SetFrameLevel(top + 3)
+			for _, p in ipairs({ f:GetChildren() }) do
+				if p:GetFrameLevel() <= top then p:SetFrameLevel(top + 4) end
+			end
+		end
+	end
+end
+
 local function HoldAll()
 	if not Stitched() then return end
 	for name, reshow in pairs(FRAMES) do
@@ -63,6 +83,8 @@ local function HoldAll()
 		if type(f) == "table" and f.HookScript then Hold(f, reshow) end
 	end
 	if _G.LeaMapsDB then LeatrixPins() end
+	local loaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
+	if loaded and loaded("RareScanner") then RareScannerPins() end
 end
 
 local function Release()

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **RareScanner:** its rare icons are lifted above the stitched map's art (they're made low on the
+  canvas, under it), the way Leatrix Maps' icons already are.
+
 ## v0.4.0-beta (2026-10-16)
 
 ### New
